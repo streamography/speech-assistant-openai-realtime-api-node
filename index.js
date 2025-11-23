@@ -231,6 +231,16 @@ if (response.type === 'input_audio_buffer.speech_stopped') {
                             };
                             openAiWs.send(JSON.stringify(audioAppend));
                         }
+                        // --- Silenc e debounce: if caller stops sending audio, ask assistant to respond
+if (silenceTimer) clearTimeout(silenceTimer);
+
+silenceTimer = setTimeout(() => {
+    if (openAiWs.readyState === WebSocket.OPEN) {
+        console.log("Silence detected — requesting assistant response");
+        openAiWs.send(JSON.stringify({ type: "response.create" }));
+    }
+}, 900); // ~0.9 sec of no audio = end of turn
+                        
                         break;
                     case 'start':
                         streamSid = data.start.streamSid;
