@@ -22,8 +22,13 @@ fastify.register(fastifyWs);
 
 // Constants
 const SYSTEM_MESSAGE = 'You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts. You have a penchant for dad jokes, owl jokes, and rickrolling – subtly. Always stay positive, but work in a joke when appropriate.';
-const VOICE = 'alloy';
-const TEMPERATURE = 0.8; // Controls the randomness of the AI's responses
+const VOICE = 'alloy'; // pick any supported Realtime voice
+const MODEL = 'gpt-realtime';
+const INPUT_AUDIO_FORMAT = 'g711_ulaw';  // Twilio Media Streams uses G.711 u-law (pcmu)
+const OUTPUT_AUDIO_FORMAT = 'g711_ulaw';
+const TURN_DETECTION = { type: 'server_vad' };
+const TEMPERATURE = 0.8; // optional; may be ignored by Realtime, safe to keep
+// Controls the randomness of the AI's responses
 const PORT = process.env.PORT || 5050; // Allow dynamic port assignment
 
 // List of Event Types to log to the console. See the OpenAI Realtime API Documentation: https://platform.openai.com/docs/api-reference/realtime
@@ -74,8 +79,9 @@ fastify.register(async (fastify) => {
         let lastAssistantItem = null;
         let markQueue = [];
         let responseStartTimestampTwilio = null;
+        let silenceTimer = null; // used to detect end-of-turn if VAD events don't arrive
 
-        const openAiWs = new WebSocket(`wss://api.openai.com/v1/realtime?model=gpt-realtime&temperature=${TEMPERATURE}`, {
+        const openAiWs = new WebSocket(`wss://api.openai.com/v1/realtime?model=${MODEL}`, {
             headers: {
                 Authorization: `Bearer ${OPENAI_API_KEY}`,
             }
@@ -84,25 +90,34 @@ fastify.register(async (fastify) => {
         // Control initial session with OpenAI
         const initializeSession = () => {
             const sessionUpdate = {
-                type: 'session.update',
+                type: "session.update",
                 session: {
-                    type: 'realtime',
-                    model: "gpt-realtime",
-                    output_modalities: ["audio"],
-                    audio: {
-                        input: { format: { type: 'audio/pcmu' }, turn_detection: { type: "server_vad" } },
-                        output: { format: { type: 'audio/pcmu' }, voice: VOICE },
-                    },
+                    model: MODEL,
+                    modalities: ["audio", "text"],
                     instructions: SYSTEM_MESSAGE,
-                },
+                    voice: VOICE,
+                    input_audio_format: INPUT_AUDIO_FORMAT,
+                    output_audio_format: OUTPUT_AUDIO_FORMAT,
+                    turn_detection: TURN_DETECTION
+                }
             };
 
-            console.log('Sending session update:', JSON.stringify(sessionUpdate));
+            console.log("Sending session update:", sessionUpdate);
             openAiWs.send(JSON.stringify(sessionUpdate));
 
-            // Uncomment the following line to have AI speak first:
+            // If you want the AI to greet first, uncomment:
             // sendInitialConversationItem();
+        
+
+        // Single place to request an assistant turn (audio + text)
+        const requestAssistantResponse = () => {
+            if (openAiWs.readyState !== WebSocket.OPEN) return;
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { modalities: ["audio", "text"] }
+            }));
         };
+};
 
         // Send initial conversation item if AI talks first
         const sendInitialConversationItem = () => {
@@ -122,7 +137,7 @@ fastify.register(async (fastify) => {
 
             if (SHOW_TIMING_MATH) console.log('Sending initial conversation item:', JSON.stringify(initialConversationItem));
             openAiWs.send(JSON.stringify(initialConversationItem));
-            openAiWs.send(JSON.stringify({ type: 'response.create' }));
+            requestAssistantResponse();
         };
 
         // Handle interruption when the caller's speech starts
@@ -176,16 +191,19 @@ fastify.register(async (fastify) => {
         // Listen for messages from the OpenAI WebSocket (and send to Twilio if necessary)
         openAiWs.on('message', (data) => {
             try {
-                const response = JSON.parse(data);
+                const response = JSON.parse(data.toString());
 
                 if (LOG_EVENT_TYPES.includes(response.type)) {
                     console.log(`Received event: ${response.type}`, response);
                 }
-// Trigger a response when OpenAI detects you've stopped speaking
-if (response.type === 'input_audio_buffer.speech_stopped') {
-    console.log("Speech stopped detected — requesting assistant response");
-    openAiWs.send(JSON.stringify({ type: 'response.create' }));
-}
+
+                // Trigger a response when OpenAI detects caller has stopped talking
+                if (response.type === 'input_audio_buffer.speech_stopped') {
+                    console.log('Speech stopped detected — requesting assistant response');
+                    requestAssistantResponse();
+                }
+
+
                 if (response.type === 'response.output_audio.delta' && response.delta) {
                     const audioDelta = {
                         event: 'media',
@@ -231,16 +249,13 @@ if (response.type === 'input_audio_buffer.speech_stopped') {
                             };
                             openAiWs.send(JSON.stringify(audioAppend));
                         }
-                        // --- Silenc e debounce: if caller stops sending audio, ask assistant to respond
-if (silenceTimer) clearTimeout(silenceTimer);
 
-silenceTimer = setTimeout(() => {
-    if (openAiWs.readyState === WebSocket.OPEN) {
-        console.log("Silence detected — requesting assistant response");
-        openAiWs.send(JSON.stringify({ type: "response.create" }));
-    }
-}, 900); // ~0.9 sec of no audio = end of turn
-                        
+                        // Silence debounce: if caller stops sending audio, request a reply.
+                        if (silenceTimer) clearTimeout(silenceTimer);
+                        silenceTimer = setTimeout(() => {
+                            console.log("Silence detected — requesting assistant response");
+                            requestAssistantResponse();
+                        }, 900);
                         break;
                     case 'start':
                         streamSid = data.start.streamSid;
@@ -266,6 +281,8 @@ silenceTimer = setTimeout(() => {
 
         // Handle connection close
         connection.on('close', () => {
+            if (silenceTimer) clearTimeout(silenceTimer);
+
             if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
             console.log('Client disconnected.');
         });
@@ -281,11 +298,10 @@ silenceTimer = setTimeout(() => {
     });
 });
 
-fastify.listen({ port: PORT, host: "0.0.0.0" }, (err) => {
-
+fastify.listen({ port: PORT }, (err) => {
     if (err) {
         console.error(err);
         process.exit(1);
     }
     console.log(`Server is listening on port ${PORT}`);
-});
+});});
