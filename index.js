@@ -181,7 +181,11 @@ fastify.register(async (fastify) => {
                 if (LOG_EVENT_TYPES.includes(response.type)) {
                     console.log(`Received event: ${response.type}`, response);
                 }
-
+// Trigger a response when OpenAI detects you've stopped speaking
+if (response.type === 'input_audio_buffer.speech_stopped') {
+    console.log("Speech stopped detected — requesting assistant response");
+    openAiWs.send(JSON.stringify({ type: 'response.create' }));
+}
                 if (response.type === 'response.output_audio.delta' && response.delta) {
                     const audioDelta = {
                         event: 'media',
