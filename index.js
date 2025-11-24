@@ -77,7 +77,7 @@ fastify.register(async (fastify) => {
     let pendingResponseForItemId = null;
 
     const openAiWs = new WebSocket(
-  `wss://api.openai.com/v1/realtime?model=gpt-realtime&temperature=${TEMPERATURE}`,
+  `wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28`,
   {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
