@@ -90,6 +90,7 @@ fastify.register(async (fastify) => {
     const sessionUpdate = {
         type: "session.update",
         session: {
+            type: "realtime",
             modalities: ["audio"],
             instructions: SYSTEM_MESSAGE,
             voice: VOICE,
@@ -105,7 +106,6 @@ fastify.register(async (fastify) => {
 
             // Uncomment the following line to have AI speak first:
             // sendInitialConversationItem();
-        };
 
         // Send initial conversation item if AI talks first
         const sendInitialConversationItem = () => {
