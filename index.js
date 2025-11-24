@@ -77,14 +77,14 @@ fastify.register(async (fastify) => {
     let pendingResponseForItemId = null;
 
     const openAiWs = new WebSocket(
-      `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview&temperature=${TEMPERATURE}`,
-      {
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "OpenAI-Beta": "realtime=v1"
-        }
-      }
-    );
+  `wss://api.openai.com/v1/realtime?model=gpt-realtime&temperature=${TEMPERATURE}`,
+  {
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "OpenAI-Beta": "realtime=v1"
+    }
+  }
+);
 
     const initializeSession = () => {
       if (openAiWs.readyState !== WebSocket.OPEN) return;
