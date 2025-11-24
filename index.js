@@ -90,28 +90,28 @@ fastify.register(async (fastify) => {
       if (openAiWs.readyState !== WebSocket.OPEN) return;
 
       const sessionUpdate = {
-        type: "session.update",
-        session: {
-          modalities: ["text", "audio"],
-          instructions: SYSTEM_MESSAGE,
-          voice: VOICE,
-          input_audio_format: "g711_ulaw",
-          output_audio_format: "g711_ulaw",
-          turn_detection: {
-            type: "server_vad",
-            create_response: false,
-            interrupt_response: true,
-            // a bit less hair-trigger than default
-            silence_duration_ms: 500
-          },
+  type: "session.update",
+  session: {
+    modalities: ["text", "audio"],
+    instructions: SYSTEM_MESSAGE,
+    voice: "alloy",
+    input_audio_format: "g711_ulaw",
+    output_audio_format: "g711_ulaw",
 
-          // ✅ IMPORTANT: enable transcription so audio becomes a usable user turn
-          input_audio_transcription: {
-            model: "whisper-1"
-          }
-        }
-      };
+    turn_detection: {
+      type: "server_vad",
+      create_response: true,
+      interrupt_response: false,  // flip to true later if you want barge-in
+      threshold: 0.7,
+      silence_duration_ms: 800,
+      prefix_padding_ms: 300
+    },
 
+    input_audio_transcription: {
+      model: "whisper-1"
+    }
+  }
+};
       console.log("Sending session update:", JSON.stringify(sessionUpdate));
       openAiWs.send(JSON.stringify(sessionUpdate));
     };
