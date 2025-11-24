@@ -84,21 +84,20 @@ fastify.register(async (fastify) => {
         // Control initial session with OpenAI
         const initializeSession = () => {
             const sessionUpdate = {
-                type: 'session.update',
-                session: {
-                    type: 'realtime',
-                    model: "gpt-realtime",
-                    output_modalities: ["audio"],
-                    audio: {
-                        input: { format: { type: 'audio/pcmu' }, turn_detection: { type: "server_vad" } },
-                        output: { format: { type: 'audio/pcmu' }, voice: VOICE },
-                    },
-                    instructions: SYSTEM_MESSAGE,
-                },
-            };
+    type: "session.update",
+    session: {
+        modalities: ["audio", "text"],
+        instructions: SYSTEM_MESSAGE,
+        model: "gpt-4o-realtime-preview",
+        voice: VOICE,
+        input_audio_format: "g711_ulaw",
+        output_audio_format: "g711_ulaw",
+        turn_detection: { type: "server_vad" }
+    }
+};
 
-            console.log('Sending session update:', JSON.stringify(sessionUpdate));
-            openAiWs.send(JSON.stringify(sessionUpdate));
+console.log("Sending session update:", sessionUpdate);
+openAiWs.send(JSON.stringify(sessionUpdate));
 
             // Uncomment the following line to have AI speak first:
             // sendInitialConversationItem();
@@ -206,6 +205,11 @@ fastify.register(async (fastify) => {
                 if (response.type === 'input_audio_buffer.speech_started') {
                     handleSpeechStartedEvent();
                 }
+                // When the caller stops talking, request the AI to respond
+if (response.type === "input_audio_buffer.speech_stopped") {
+    console.log("Detected end of caller speech — requesting AI response");
+    openAiWs.send(JSON.stringify({ type: "response.create" }));
+}
             } catch (error) {
                 console.error('Error processing OpenAI message:', error, 'Raw message:', data);
             }
