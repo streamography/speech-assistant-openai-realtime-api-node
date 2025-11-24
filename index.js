@@ -1,14 +1,14 @@
-import Fastify from 'fastify';
-import WebSocket from 'ws';
-import dotenv from 'dotenv';
-import fastifyFormBody from '@fastify/formbody';
-import fastifyWs from '@fastify/websocket';
+import Fastify from "fastify";
+import WebSocket from "ws";
+import dotenv from "dotenv";
+import fastifyFormBody from "@fastify/formbody";
+import fastifyWs from "@fastify/websocket";
 
 dotenv.config();
 
 const { OPENAI_API_KEY } = process.env;
 if (!OPENAI_API_KEY) {
-  console.error('Missing OpenAI API key. Please set it in the .env file.');
+  console.error("Missing OpenAI API key. Please set it in the .env file.");
   process.exit(1);
 }
 
@@ -24,14 +24,15 @@ const PORT = process.env.PORT || 5050;
 
 const LOG_EVENT_TYPES = [
   "error",
-  "response.content.done",
-  "rate_limits.updated",
+  "response.created",
   "response.done",
+  "response.output_audio.delta",
   "input_audio_buffer.committed",
   "input_audio_buffer.speech_stopped",
   "input_audio_buffer.speech_started",
   "session.created",
-  "session.updated"
+  "session.updated",
+  "rate_limits.updated"
 ];
 
 const SHOW_TIMING_MATH = false;
@@ -66,6 +67,9 @@ fastify.register(async (fastify) => {
     let markQueue = [];
     let responseStartTimestampTwilio = null;
 
+    // Track whether OpenAI already has an active response
+    let aiResponseInProgress = false;
+
     const openAiWs = new WebSocket(
       `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview&temperature=${TEMPERATURE}`,
       {
@@ -82,13 +86,16 @@ fastify.register(async (fastify) => {
       const sessionUpdate = {
         type: "session.update",
         session: {
-          // IMPORTANT: modalities must include text + audio
-          modalities: ["audio", "text"],
+          // IMPORTANT: OpenAI rejects ["audio"] alone. Must include text too.
+          modalities: ["text", "audio"],
           instructions: SYSTEM_MESSAGE,
           voice: VOICE,
+
+          // Twilio Media Streams send G.711 μ-law payloads
           input_audio_format: "g711_ulaw",
           output_audio_format: "g711_ulaw",
-          // IMPORTANT: disable auto-create so we control response.create
+
+          // IMPORTANT: We want to control when response.create happens.
           turn_detection: {
             type: "server_vad",
             create_response: false,
@@ -117,14 +124,16 @@ fastify.register(async (fastify) => {
         }
       };
 
-      if (SHOW_TIMING_MATH)
+      if (SHOW_TIMING_MATH) {
         console.log(
           "Sending initial conversation item:",
           JSON.stringify(initialConversationItem)
         );
+      }
 
       openAiWs.send(JSON.stringify(initialConversationItem));
       openAiWs.send(JSON.stringify({ type: "response.create" }));
+      aiResponseInProgress = true;
     };
 
     const handleSpeechStartedEvent = () => {
@@ -132,10 +141,11 @@ fastify.register(async (fastify) => {
         const elapsedTime =
           latestMediaTimestamp - responseStartTimestampTwilio;
 
-        if (SHOW_TIMING_MATH)
+        if (SHOW_TIMING_MATH) {
           console.log(
             `Calculating elapsed time for truncation: ${latestMediaTimestamp} - ${responseStartTimestampTwilio} = ${elapsedTime}ms`
           );
+        }
 
         if (lastAssistantItem) {
           const truncateEvent = {
@@ -144,11 +154,14 @@ fastify.register(async (fastify) => {
             content_index: 0,
             audio_end_ms: elapsedTime
           };
-          if (SHOW_TIMING_MATH)
+
+          if (SHOW_TIMING_MATH) {
             console.log(
               "Sending truncation event:",
               JSON.stringify(truncateEvent)
             );
+          }
+
           openAiWs.send(JSON.stringify(truncateEvent));
         }
 
@@ -162,6 +175,7 @@ fastify.register(async (fastify) => {
         markQueue = [];
         lastAssistantItem = null;
         responseStartTimestampTwilio = null;
+        aiResponseInProgress = false;
       }
     };
 
@@ -192,6 +206,14 @@ fastify.register(async (fastify) => {
           console.log(`OpenAI event: ${response.type}`, response);
         }
 
+        if (response.type === "response.created") {
+          aiResponseInProgress = true;
+        }
+
+        if (response.type === "response.done") {
+          aiResponseInProgress = false;
+        }
+
         if (response.type === "response.output_audio.delta" && response.delta) {
           const audioDelta = {
             event: "media",
@@ -202,10 +224,12 @@ fastify.register(async (fastify) => {
 
           if (!responseStartTimestampTwilio) {
             responseStartTimestampTwilio = latestMediaTimestamp;
-            if (SHOW_TIMING_MATH)
+
+            if (SHOW_TIMING_MATH) {
               console.log(
                 `Setting start timestamp for new response: ${responseStartTimestampTwilio}ms`
               );
+            }
           }
 
           if (response.item_id) lastAssistantItem = response.item_id;
@@ -217,12 +241,18 @@ fastify.register(async (fastify) => {
           handleSpeechStartedEvent();
         }
 
-        // Manual response trigger (since we disabled auto-create)
-        if (response.type === "input_audio_buffer.speech_stopped") {
-          console.log(
-            "Detected end of caller speech — requesting AI response"
-          );
-          openAiWs.send(JSON.stringify({ type: "response.create" }));
+        // Instead of creating response on speech_stopped (racey),
+        // wait for committed, then create only if none in progress.
+        if (response.type === "input_audio_buffer.committed") {
+          if (!aiResponseInProgress) {
+            console.log("Audio committed — requesting AI response");
+            openAiWs.send(JSON.stringify({ type: "response.create" }));
+            aiResponseInProgress = true;
+          } else {
+            if (SHOW_TIMING_MATH) {
+              console.log("Skipped response.create (already in progress)");
+            }
+          }
         }
       } catch (err) {
         console.error(
@@ -242,10 +272,11 @@ fastify.register(async (fastify) => {
           case "media":
             latestMediaTimestamp = data.media.timestamp;
 
-            if (SHOW_TIMING_MATH)
+            if (SHOW_TIMING_MATH) {
               console.log(
                 `Received media message with timestamp: ${latestMediaTimestamp}ms`
               );
+            }
 
             if (openAiWs.readyState === WebSocket.OPEN) {
               openAiWs.send(
@@ -263,6 +294,7 @@ fastify.register(async (fastify) => {
 
             responseStartTimestampTwilio = null;
             latestMediaTimestamp = 0;
+            aiResponseInProgress = false;
             break;
 
           case "mark":
@@ -288,6 +320,7 @@ fastify.register(async (fastify) => {
 
     openAiWs.on("error", (error) => {
       console.error("Error in OpenAI WebSocket:", error);
+      aiResponseInProgress = false;
     });
   });
 });
