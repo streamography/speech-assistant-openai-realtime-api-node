@@ -119,8 +119,6 @@ fastify.register(async (f) => {
       const sessionUpdate = {
         type: "session.update",
         session: {
-          // required fields
-          type: "realtime",
           modalities: ["audio"],
           instructions: SYSTEM_MESSAGE,
           voice: VOICE,
@@ -219,11 +217,6 @@ fastify.register(async (f) => {
 
         if (response.type === "input_audio_buffer.speech_started") {
           handleSpeechStartedEvent();
-        }
-
-        if (response.type === "input_audio_buffer.speech_stopped") {
-          console.log("Detected end of caller speech — requesting AI response");
-          openAiWs.send(JSON.stringify({ type: "response.create" }));
         }
       } catch (err) {
         console.error("Error processing OpenAI message:", err, "Raw:", data);
