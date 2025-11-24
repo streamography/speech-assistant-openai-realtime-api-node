@@ -30,9 +30,11 @@ const LOG_EVENT_TYPES = [
   "input_audio_buffer.committed",
   "input_audio_buffer.speech_stopped",
   "input_audio_buffer.speech_started",
+  "conversation.item.created",
   "session.created",
   "session.updated",
-  "rate_limits.updated"
+  "rate_limits.updated",
+  "input_audio_transcription.completed"
 ];
 
 const SHOW_TIMING_MATH = false;
@@ -67,8 +69,12 @@ fastify.register(async (fastify) => {
     let markQueue = [];
     let responseStartTimestampTwilio = null;
 
-    // Track whether OpenAI already has an active response
+    // Guard so we never fire response.create twice at once
     let aiResponseInProgress = false;
+
+    // Track last committed audio item
+    let lastCommittedItemId = null;
+    let pendingResponseForItemId = null;
 
     const openAiWs = new WebSocket(
       `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview&temperature=${TEMPERATURE}`,
@@ -86,20 +92,22 @@ fastify.register(async (fastify) => {
       const sessionUpdate = {
         type: "session.update",
         session: {
-          // IMPORTANT: OpenAI rejects ["audio"] alone. Must include text too.
           modalities: ["text", "audio"],
           instructions: SYSTEM_MESSAGE,
           voice: VOICE,
-
-          // Twilio Media Streams send G.711 μ-law payloads
           input_audio_format: "g711_ulaw",
           output_audio_format: "g711_ulaw",
-
-          // IMPORTANT: We want to control when response.create happens.
           turn_detection: {
             type: "server_vad",
             create_response: false,
-            interrupt_response: true
+            interrupt_response: true,
+            // a bit less hair-trigger than default
+            silence_duration_ms: 500
+          },
+
+          // ✅ IMPORTANT: enable transcription so audio becomes a usable user turn
+          input_audio_transcription: {
+            model: "whisper-1"
           }
         }
       };
@@ -108,44 +116,10 @@ fastify.register(async (fastify) => {
       openAiWs.send(JSON.stringify(sessionUpdate));
     };
 
-    const sendInitialConversationItem = () => {
-      const initialConversationItem = {
-        type: "conversation.item.create",
-        item: {
-          type: "message",
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text:
-                'Greet the user with "Hello there! I am an AI voice assistant powered by Twilio and the OpenAI Realtime API. You can ask me for facts, jokes, or anything you can imagine. How can I help you?"'
-            }
-          ]
-        }
-      };
-
-      if (SHOW_TIMING_MATH) {
-        console.log(
-          "Sending initial conversation item:",
-          JSON.stringify(initialConversationItem)
-        );
-      }
-
-      openAiWs.send(JSON.stringify(initialConversationItem));
-      openAiWs.send(JSON.stringify({ type: "response.create" }));
-      aiResponseInProgress = true;
-    };
-
     const handleSpeechStartedEvent = () => {
       if (markQueue.length > 0 && responseStartTimestampTwilio != null) {
         const elapsedTime =
           latestMediaTimestamp - responseStartTimestampTwilio;
-
-        if (SHOW_TIMING_MATH) {
-          console.log(
-            `Calculating elapsed time for truncation: ${latestMediaTimestamp} - ${responseStartTimestampTwilio} = ${elapsedTime}ms`
-          );
-        }
 
         if (lastAssistantItem) {
           const truncateEvent = {
@@ -154,14 +128,6 @@ fastify.register(async (fastify) => {
             content_index: 0,
             audio_end_ms: elapsedTime
           };
-
-          if (SHOW_TIMING_MATH) {
-            console.log(
-              "Sending truncation event:",
-              JSON.stringify(truncateEvent)
-            );
-          }
-
           openAiWs.send(JSON.stringify(truncateEvent));
         }
 
@@ -181,21 +147,34 @@ fastify.register(async (fastify) => {
 
     const sendMark = () => {
       if (!streamSid) return;
-      const markEvent = {
-        event: "mark",
-        streamSid,
-        mark: { name: "responsePart" }
-      };
-      connection.send(JSON.stringify(markEvent));
+      connection.send(
+        JSON.stringify({
+          event: "mark",
+          streamSid,
+          mark: { name: "responsePart" }
+        })
+      );
       markQueue.push("responsePart");
+    };
+
+    const tryCreateResponse = (reason) => {
+      if (aiResponseInProgress) {
+        console.log("Skipping response.create — response already in progress");
+        return;
+      }
+      if (!lastCommittedItemId) {
+        console.log("Skipping response.create — no committed audio yet");
+        return;
+      }
+
+      console.log(`Creating AI response (${reason}) for item ${lastCommittedItemId}`);
+      aiResponseInProgress = true;
+      openAiWs.send(JSON.stringify({ type: "response.create" }));
     };
 
     openAiWs.on("open", () => {
       console.log("Connected to OpenAI Realtime");
       setTimeout(initializeSession, 100);
-
-      // If you want AI to speak first, uncomment:
-      // sendInitialConversationItem();
     });
 
     openAiWs.on("message", (data) => {
@@ -212,6 +191,13 @@ fastify.register(async (fastify) => {
 
         if (response.type === "response.done") {
           aiResponseInProgress = false;
+
+          if (response.response?.status === "failed") {
+            console.error(
+              "Response failed details:",
+              JSON.stringify(response.response?.status_details, null, 2)
+            );
+          }
         }
 
         if (response.type === "response.output_audio.delta" && response.delta) {
@@ -224,16 +210,9 @@ fastify.register(async (fastify) => {
 
           if (!responseStartTimestampTwilio) {
             responseStartTimestampTwilio = latestMediaTimestamp;
-
-            if (SHOW_TIMING_MATH) {
-              console.log(
-                `Setting start timestamp for new response: ${responseStartTimestampTwilio}ms`
-              );
-            }
           }
 
           if (response.item_id) lastAssistantItem = response.item_id;
-
           sendMark();
         }
 
@@ -241,26 +220,34 @@ fastify.register(async (fastify) => {
           handleSpeechStartedEvent();
         }
 
-        // Instead of creating response on speech_stopped (racey),
-        // wait for committed, then create only if none in progress.
+        // We now wait for committed audio
         if (response.type === "input_audio_buffer.committed") {
-          if (!aiResponseInProgress) {
-            console.log("Audio committed — requesting AI response");
-            openAiWs.send(JSON.stringify({ type: "response.create" }));
-            aiResponseInProgress = true;
-          } else {
-            if (SHOW_TIMING_MATH) {
-              console.log("Skipped response.create (already in progress)");
+          lastCommittedItemId = response.item_id;
+          pendingResponseForItemId = response.item_id;
+
+          // If transcription doesn't arrive, still respond after a brief beat
+          setTimeout(() => {
+            if (pendingResponseForItemId === lastCommittedItemId) {
+              tryCreateResponse("commit-timeout-fallback");
+              pendingResponseForItemId = null;
             }
-          }
+          }, 250);
+        }
+
+        // Prefer responding as soon as transcription completes
+        if (response.type === "input_audio_transcription.completed") {
+          pendingResponseForItemId = null;
+          tryCreateResponse("transcription-complete");
+        }
+
+        if (response.type === "error") {
+          console.error(
+            "OpenAI error:",
+            JSON.stringify(response.error, null, 2)
+          );
         }
       } catch (err) {
-        console.error(
-          "Error processing OpenAI message:",
-          err,
-          "Raw message:",
-          data
-        );
+        console.error("Error processing OpenAI message:", err, data);
       }
     });
 
@@ -271,13 +258,6 @@ fastify.register(async (fastify) => {
         switch (data.event) {
           case "media":
             latestMediaTimestamp = data.media.timestamp;
-
-            if (SHOW_TIMING_MATH) {
-              console.log(
-                `Received media message with timestamp: ${latestMediaTimestamp}ms`
-              );
-            }
-
             if (openAiWs.readyState === WebSocket.OPEN) {
               openAiWs.send(
                 JSON.stringify({
@@ -295,6 +275,8 @@ fastify.register(async (fastify) => {
             responseStartTimestampTwilio = null;
             latestMediaTimestamp = 0;
             aiResponseInProgress = false;
+            lastCommittedItemId = null;
+            pendingResponseForItemId = null;
             break;
 
           case "mark":
