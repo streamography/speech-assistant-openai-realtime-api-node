@@ -75,29 +75,33 @@ fastify.register(async (fastify) => {
         let markQueue = [];
         let responseStartTimestampTwilio = null;
 
-        const openAiWs = new WebSocket(`wss://api.openai.com/v1/realtime?model=gpt-realtime&temperature=${TEMPERATURE}`, {
-            headers: {
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-            }
-        });
+        const openAiWs = new WebSocket(
+  `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview&temperature=${TEMPERATURE}`,
+  {
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "OpenAI-Beta": "realtime=v1"
+    }
+  }
+);
 
         // Control initial session with OpenAI
         const initializeSession = () => {
-            const sessionUpdate = {
-    type: "session.update",
-    session: {
-        modalities: ["audio", "text"],
-        instructions: SYSTEM_MESSAGE,
-        model: "gpt-4o-realtime-preview",
-        voice: VOICE,
-        input_audio_format: "g711_ulaw",
-        output_audio_format: "g711_ulaw",
-        turn_detection: { type: "server_vad" }
-    }
-};
+    const sessionUpdate = {
+        type: "session.update",
+        session: {
+            modalities: ["audio"],
+            instructions: SYSTEM_MESSAGE,
+            voice: VOICE,
+            input_audio_format: "g711_ulaw",
+            output_audio_format: "g711_ulaw",
+            turn_detection: { type: "server_vad" }
+        }
+    };
 
-console.log("Sending session update:", sessionUpdate);
-openAiWs.send(JSON.stringify(sessionUpdate));
+    console.log("Sending corrected session update:", JSON.stringify(sessionUpdate));
+    openAiWs.send(JSON.stringify(sessionUpdate));
+};
 
             // Uncomment the following line to have AI speak first:
             // sendInitialConversationItem();
