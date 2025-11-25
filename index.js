@@ -96,14 +96,14 @@ fastify.register(async (fastify) => {
     instructions: SYSTEM_MESSAGE,
     voice: "alloy",
     input_audio_format: "g711_ulaw",
-    output_audio_format: "g711_ulaw",
+    output_audio_format: "pcm16",
 
     turn_detection: {
       type: "server_vad",
       create_response: true,
-      interrupt_response: false,  // flip to true later if you want barge-in
+      interrupt_response: true,  // flip to true later if you want barge-in
       threshold: 0.7,
-      silence_duration_ms: 800,
+      silence_duration_ms: 500,
       prefix_padding_ms: 300
     },
 
