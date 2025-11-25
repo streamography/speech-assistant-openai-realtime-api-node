@@ -87,34 +87,38 @@ fastify.register(async (fastify) => {
 );
 
     const initializeSession = () => {
-      if (openAiWs.readyState !== WebSocket.OPEN) return;
+  if (openAiWs.readyState !== WebSocket.OPEN) return;
 
-      const sessionUpdate = {
-  type: "session.update",
-  session: {
-    modalities: ["text", "audio"],
-    instructions: SYSTEM_MESSAGE,
-    voice: "alloy",
-    input_audio_format: "g711_ulaw",
-    output_audio_format: "pcm16",
+  const sessionUpdate = {
+    type: "session.update",
+    session: {
+      modalities: ["audio", "text"],
+      instructions: SYSTEM_MESSAGE,
+      voice: VOICE,
 
-    turn_detection: {
-      type: "server_vad",
-      create_response: true,
-      interrupt_response: true,  // flip to true later if you want barge-in
-      threshold: 0.7,
-      silence_duration_ms: 500,
-      prefix_padding_ms: 300
-    },
+      // Twilio <-> OpenAI codec must match
+      input_audio_format: "g711_ulaw",
+      output_audio_format: "pcm16",
 
-    input_audio_transcription: {
-      model: "whisper-1"
+      turn_detection: {
+        type: "server_vad",
+        create_response: false,      // 🔴 turn OFF auto responses
+        interrupt_response: true,    // allow barge-in
+        threshold: 0.7,
+        silence_duration_ms: 500,
+        prefix_padding_ms: 300
+      },
+
+      // Enable transcription (optional, but nice to have)
+      input_audio_transcription: {
+        model: "whisper-1"
+      }
     }
-  }
+  };
+
+  console.log("Sending session update:", JSON.stringify(sessionUpdate));
+  openAiWs.send(JSON.stringify(sessionUpdate));
 };
-      console.log("Sending session update:", JSON.stringify(sessionUpdate));
-      openAiWs.send(JSON.stringify(sessionUpdate));
-    };
 
     const handleSpeechStartedEvent = () => {
       if (markQueue.length > 0 && responseStartTimestampTwilio != null) {
@@ -158,19 +162,28 @@ fastify.register(async (fastify) => {
     };
 
     const tryCreateResponse = (reason) => {
-      if (aiResponseInProgress) {
-        console.log("Skipping response.create — response already in progress");
-        return;
-      }
-      if (!lastCommittedItemId) {
-        console.log("Skipping response.create — no committed audio yet");
-        return;
-      }
+  if (aiResponseInProgress) {
+    console.log("Skipping response.create — response already in progress");
+    return;
+  }
+  if (!lastCommittedItemId) {
+    console.log("Skipping response.create — no committed audio yet");
+    return;
+  }
 
-      console.log(`Creating AI response (${reason}) for item ${lastCommittedItemId}`);
-      aiResponseInProgress = true;
-      openAiWs.send(JSON.stringify({ type: "response.create" }));
-    };
+  console.log(`Creating AI response (${reason}) for item ${lastCommittedItemId}`);
+  aiResponseInProgress = true;
+
+  openAiWs.send(JSON.stringify({
+    type: "response.create",
+    response: {
+      modalities: ["audio", "text"],  // 👈 explicitly request audio
+      // You *can* omit instructions here since they’re in the session,
+      // but including them is harmless:
+      instructions: SYSTEM_MESSAGE
+    }
+  }));
+};
 
     openAiWs.on("open", () => {
       console.log("Connected to OpenAI Realtime");
