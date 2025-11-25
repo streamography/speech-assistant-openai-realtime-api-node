@@ -26,7 +26,7 @@ const LOG_EVENT_TYPES = [
   "error",
   "response.created",
   "response.done",
-  "response.output_audio.delta",
+  "response.audio.delta", // <-- updated
   "input_audio_buffer.committed",
   "input_audio_buffer.speech_stopped",
   "input_audio_buffer.speech_started",
@@ -98,7 +98,7 @@ fastify.register(async (fastify) => {
 
       // Twilio <-> OpenAI codec must match
       input_audio_format: "g711_ulaw",
-      output_audio_format: "pcm16",
+      output_audio_format: "g711_ulaw",
 
       turn_detection: {
         type: "server_vad",
@@ -216,21 +216,21 @@ fastify.register(async (fastify) => {
           }
         }
 
-        if (response.type === "response.output_audio.delta" && response.delta) {
-          const audioDelta = {
-            event: "media",
-            streamSid,
-            media: { payload: response.delta }
-          };
-          connection.send(JSON.stringify(audioDelta));
+        if (response.type === "response.audio.delta" && response.audio) {
+  const audioDelta = {
+    event: "media",
+    streamSid,
+    media: { payload: response.audio } // <-- note: response.audio
+  };
+  connection.send(JSON.stringify(audioDelta));
 
-          if (!responseStartTimestampTwilio) {
-            responseStartTimestampTwilio = latestMediaTimestamp;
-          }
+  if (!responseStartTimestampTwilio) {
+    responseStartTimestampTwilio = latestMediaTimestamp;
+  }
 
-          if (response.item_id) lastAssistantItem = response.item_id;
-          sendMark();
-        }
+  if (response.item_id) lastAssistantItem = response.item_id;
+  sendMark();
+}
 
         if (response.type === "input_audio_buffer.speech_started") {
           handleSpeechStartedEvent();
