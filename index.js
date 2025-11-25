@@ -191,12 +191,15 @@ fastify.register(async (fastify) => {
     });
 
     openAiWs.on("message", (data) => {
-      try {
-        const response = JSON.parse(data);
+  try {
+    const response = JSON.parse(data);
 
-        if (LOG_EVENT_TYPES.includes(response.type)) {
-          console.log(`OpenAI event: ${response.type}`, response);
-        }
+    // TEMP: see everything
+    console.log("OpenAI raw event:", response.type);
+
+    if (LOG_EVENT_TYPES.includes(response.type)) {
+      console.log(`OpenAI event: ${response.type}`, response);
+    }
 
         if (response.type === "response.created") {
           aiResponseInProgress = true;
