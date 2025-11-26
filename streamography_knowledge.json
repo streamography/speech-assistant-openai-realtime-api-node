@@ -1,1 +1,31 @@
-
+{
+  "about": "Streamography Productions is an audio/video, livestreaming, and podcast production company based in Gloucester, Massachusetts. We help clients tell their stories through live events, video, and audio content.",
+  "services": [
+    {
+      "name": "Livestreaming",
+      "description": "Multi-camera livestreaming for weddings, corporate events, sports, and community events. Includes audio mixing and live switching."
+    },
+    {
+      "name": "Podcast Studio",
+      "description": "Studio and remote podcast production, including recording, editing, and help distributing episodes."
+    },
+    {
+      "name": "Event AV & Projection",
+      "description": "Audio, lighting, and projection support for events, including microphones, speakers, projectors, and screens."
+    }
+  ],
+  "faq": [
+    {
+      "q": "Where are you based?",
+      "a": "We are based in Gloucester, Massachusetts and serve the North Shore and Greater Boston areas."
+    },
+    {
+      "q": "Do you travel for events?",
+      "a": "Yes, we travel for select events depending on schedule and logistics. Travel fees may apply."
+    },
+    {
+      "q": "How do I get a quote?",
+      "a": "The fastest way is to schedule a quick production call so we can learn about your event and provide a tailored estimate."
+    }
+  ]
+}
