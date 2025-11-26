@@ -74,12 +74,11 @@ fastify.register(async (fastifyInstance) => {
       let markQueue = [];
       let responseStartTimestampTwilio = null;
 
-      // Guard so we never fire response.create twice at once
+      // Track if the model is currently speaking (for logging / barge-in).
       let aiResponseInProgress = false;
 
-      // Track last committed audio item
-      let lastCommittedItemId = null;
-      let pendingResponseForItemId = null;
+      // Ensure we only send the explicit greeting once per call.
+      let hasSentInitialGreeting = false;
 
       const openAiWs = new WebSocket(
         "wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28",
@@ -107,9 +106,8 @@ fastify.register(async (fastifyInstance) => {
 
             turn_detection: {
               type: "server_vad",
-              // We manually call response.create; do not let the model
-              // auto-respond or you’ll get double answers.
-              create_response: false,
+              // Let the model auto-create responses after each user turn.
+              create_response: true,
               interrupt_response: true,
               threshold: 0.7,
               silence_duration_ms: 500,
@@ -173,38 +171,9 @@ fastify.register(async (fastifyInstance) => {
         markQueue.push("responsePart");
       };
 
-      const tryCreateResponse = (reason) => {
-        if (aiResponseInProgress) {
-          console.log(
-            "Skipping response.create — response already in progress"
-          );
-          return;
-        }
-        if (!lastCommittedItemId) {
-          console.log("Skipping response.create — no committed audio yet");
-          return;
-        }
-
-        console.log(
-          `Creating AI response (${reason}) for item ${lastCommittedItemId}`
-        );
-        aiResponseInProgress = true;
-
-        openAiWs.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              modalities: ["audio", "text"],
-              // Instructions are already in the session, but including
-              // them here is harmless and sometimes useful for debugging.
-              instructions: SYSTEM_MESSAGE
-            }
-          })
-        );
-      };
-
       openAiWs.on("open", () => {
         console.log("Connected to OpenAI Realtime");
+        // Small delay just to be safe before sending session.update.
         setTimeout(initializeSession, 100);
       });
 
@@ -217,6 +186,23 @@ fastify.register(async (fastifyInstance) => {
 
           if (LOG_EVENT_TYPES.includes(response.type)) {
             console.log(`OpenAI event: ${response.type}`, response);
+          }
+
+          // Once the session is updated the first time, send an explicit greeting.
+          if (response.type === "session.updated" && !hasSentInitialGreeting) {
+            hasSentInitialGreeting = true;
+            console.log("Sending initial greeting to caller");
+
+            openAiWs.send(
+              JSON.stringify({
+                type: "response.create",
+                response: {
+                  modalities: ["audio", "text"],
+                  // Instructions are already in the session; including them again is fine.
+                  instructions: SYSTEM_MESSAGE
+                }
+              })
+            );
           }
 
           if (response.type === "response.created") {
@@ -256,24 +242,20 @@ fastify.register(async (fastifyInstance) => {
             handleSpeechStartedEvent();
           }
 
-          // We now wait for committed audio
+          // With auto-response enabled, we don't need to manually
+          // trigger response.create on committed audio or transcription.
           if (response.type === "input_audio_buffer.committed") {
-            lastCommittedItemId = response.item_id;
-            pendingResponseForItemId = response.item_id;
-
-            // If transcription doesn't arrive, still respond after a brief beat
-            setTimeout(() => {
-              if (pendingResponseForItemId === lastCommittedItemId) {
-                tryCreateResponse("commit-timeout-fallback");
-                pendingResponseForItemId = null;
-              }
-            }, 250);
+            console.log(
+              "Input audio buffer committed for item:",
+              response.item_id
+            );
           }
 
-          // Prefer responding as soon as transcription completes
           if (response.type === "input_audio_transcription.completed") {
-            pendingResponseForItemId = null;
-            tryCreateResponse("transcription-complete");
+            console.log(
+              "Transcription completed:",
+              response.transcript || response.output_text
+            );
           }
 
           if (response.type === "error") {
@@ -312,10 +294,9 @@ fastify.register(async (fastifyInstance) => {
               responseStartTimestampTwilio = null;
               latestMediaTimestamp = 0;
               aiResponseInProgress = false;
-              lastCommittedItemId = null;
-              pendingResponseForItemId = null;
               markQueue = [];
               lastAssistantItem = null;
+              hasSentInitialGreeting = false;
               break;
 
             case "mark":
