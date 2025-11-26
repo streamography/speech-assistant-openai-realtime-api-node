@@ -77,8 +77,10 @@ fastify.register(async (fastifyInstance) => {
       // Track if the model is currently speaking (for logging / barge-in).
       let aiResponseInProgress = false;
 
-      // Ensure we only send the explicit greeting once per call.
-      let hasSentInitialGreeting = false;
+      // Handshake flags: Twilio call + OpenAI session readiness + greeting.
+      let callReady = false; // Twilio "start" received, streamSid set
+      let openAiSessionReady = false; // OpenAI "session.updated" received
+      let greetingSent = false; // We have sent the initial response.create
 
       const openAiWs = new WebSocket(
         "wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28",
@@ -128,10 +130,39 @@ fastify.register(async (fastifyInstance) => {
         openAiWs.send(JSON.stringify(sessionUpdate));
       };
 
+      const maybeSendGreeting = () => {
+        if (
+          greetingSent ||
+          !callReady ||
+          !openAiSessionReady ||
+          openAiWs.readyState !== WebSocket.OPEN
+        ) {
+          return;
+        }
+
+        greetingSent = true;
+        console.log("Sending initial greeting to caller");
+
+        openAiWs.send(
+          JSON.stringify({
+            type: "response.create",
+            response: {
+              modalities: ["audio", "text"],
+              // Instructions are already in the session; including them again is fine.
+              instructions: SYSTEM_MESSAGE
+            }
+          })
+        );
+      };
+
       const handleSpeechStartedEvent = () => {
         // User barge-in while we’re talking: truncate current answer,
         // clear any queued marks, and let model listen again.
-        if (markQueue.length > 0 && responseStartTimestampTwilio != null) {
+        if (
+          markQueue.length > 0 &&
+          responseStartTimestampTwilio != null &&
+          streamSid
+        ) {
           const elapsedTime =
             latestMediaTimestamp - responseStartTimestampTwilio;
 
@@ -188,21 +219,10 @@ fastify.register(async (fastifyInstance) => {
             console.log(`OpenAI event: ${response.type}`, response);
           }
 
-          // Once the session is updated the first time, send an explicit greeting.
-          if (response.type === "session.updated" && !hasSentInitialGreeting) {
-            hasSentInitialGreeting = true;
-            console.log("Sending initial greeting to caller");
-
-            openAiWs.send(
-              JSON.stringify({
-                type: "response.create",
-                response: {
-                  modalities: ["audio", "text"],
-                  // Instructions are already in the session; including them again is fine.
-                  instructions: SYSTEM_MESSAGE
-                }
-              })
-            );
+          if (response.type === "session.updated") {
+            openAiSessionReady = true;
+            console.log("OpenAI session updated");
+            maybeSendGreeting();
           }
 
           if (response.type === "response.created") {
@@ -221,6 +241,14 @@ fastify.register(async (fastifyInstance) => {
           }
 
           if (response.type === "response.audio.delta" && response.audio) {
+            // Don’t send audio to Twilio until we have a valid streamSid.
+            if (!streamSid) {
+              console.warn(
+                "Skipping audio delta because streamSid is not set yet"
+              );
+              return;
+            }
+
             const audioDelta = {
               event: "media",
               streamSid,
@@ -296,7 +324,11 @@ fastify.register(async (fastifyInstance) => {
               aiResponseInProgress = false;
               markQueue = [];
               lastAssistantItem = null;
-              hasSentInitialGreeting = false;
+
+              // Mark call as ready and attempt greeting (if OpenAI session is ready).
+              callReady = true;
+              greetingSent = false;
+              maybeSendGreeting();
               break;
 
             case "mark":
@@ -318,6 +350,12 @@ fastify.register(async (fastifyInstance) => {
           openAiWs.close();
         }
         console.log("Twilio client disconnected");
+
+        // Reset handshake flags
+        callReady = false;
+        openAiSessionReady = false;
+        greetingSent = false;
+        aiResponseInProgress = false;
       });
 
       openAiWs.on("close", () => {
