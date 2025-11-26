@@ -16,8 +16,34 @@ const fastify = Fastify();
 fastify.register(fastifyFormBody);
 fastify.register(fastifyWs);
 
-const SYSTEM_MESSAGE =
-  "You are a helpful and bubbly AI assistant who loves to chat about anything the user is interested about and is prepared to offer them facts. You have a penchant for dad jokes, owl jokes, and rickrolling – subtly. Always stay positive, but work in a joke when appropriate.";
+// ---- Natural voice + phone-optimized system message ----
+const SYSTEM_MESSAGE = `
+You are a warm, friendly, and naturally conversational AI assistant speaking on a phone call.
+Always speak English only, even if the audio is unclear.
+
+Voice style:
+- Use short, natural sentences.
+- Use contractions ("I'm", "you're", "that's", "we'll") whenever they sound natural.
+- Add small pauses with commas, line breaks, or the occasional "..." when thinking.
+- Keep an upbeat, relaxed tone, like a professional customer service rep having a good day.
+
+Conversation style:
+- Acknowledge what the caller says ("Gotcha", "Makes sense", "Okay, let me check that").
+- Ask clarifying questions when you need more info.
+- If you don't know something, say so honestly and then offer what you can.
+- Keep most replies brief (1–3 sentences) unless the caller asks for more detail.
+
+Personality:
+- Stay positive and encouraging.
+- When it feels appropriate, you may lightly use dad jokes or playful humor, but never overdo it and never ignore the caller's real concern just to make a joke.
+- Do not use stiff, corporate-sounding phrases like "your call is important to us".
+
+Pacing and turn-taking:
+- Take a short, natural beat before answering, like a human who is thinking for half a second.
+- Do not talk over the caller; wait for them to finish before responding.
+`;
+
+// Keep using alloy; it handles phone compression well.
 const VOICE = "alloy";
 // Currently unused, but kept for future tuning if needed.
 const TEMPERATURE = 0.8;
@@ -49,10 +75,12 @@ fastify.all("/incoming-call", async (request, reply) => {
   const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Google.en-US-Chirp3-HD-Aoede">
-    Please wait while we connect your call to the A. I. voice assistant, powered by Twilio and the Open A I Realtime API
+    Please hold while we connect you to our A I voice assistant, powered by Twilio and Open A I Realtime.
   </Say>
   <Pause length="1"/>
-  <Say voice="Google.en-US-Chirp3-HD-Aoede">O.K. you can start talking!</Say>
+  <Say voice="Google.en-US-Chirp3-HD-Aoede">
+    Okay, you're all set. You can start talking now.
+  </Say>
   <Connect>
     <Stream url="wss://${request.headers.host}/media-stream" />
   </Connect>
@@ -106,13 +134,16 @@ fastify.register(async (fastifyInstance) => {
             input_audio_format: "g711_ulaw",
             output_audio_format: "g711_ulaw",
 
+            // ---- Tuned server VAD for more natural turn-taking on phone audio ----
             turn_detection: {
               type: "server_vad",
               // Let the model auto-create responses after each user turn.
               create_response: true,
-              interrupt_response: true,
-              threshold: 0.7,
-              silence_duration_ms: 500,
+              // More human if we don't hard-barge over ourselves.
+              interrupt_response: false,
+              // Slightly lower threshold and longer pause to avoid cutting callers off.
+              threshold: 0.6,
+              silence_duration_ms: 650,
               prefix_padding_ms: 300
             },
 
@@ -143,13 +174,16 @@ fastify.register(async (fastifyInstance) => {
         greetingSent = true;
         console.log("Sending initial greeting to caller");
 
+        // We keep using response.create, but nudge the model to start with a natural greeting.
         openAiWs.send(
           JSON.stringify({
             type: "response.create",
             response: {
               modalities: ["audio", "text"],
-              // Instructions are already in the session; including them again is fine.
-              instructions: SYSTEM_MESSAGE
+              // Instructions are already in the session; here we just gently steer the first turn.
+              instructions: `${SYSTEM_MESSAGE}
+
+For your first reply, greet the caller in a warm, natural way, and briefly ask how you can help today.`
             }
           })
         );
