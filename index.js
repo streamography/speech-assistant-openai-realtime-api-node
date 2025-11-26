@@ -210,7 +210,10 @@ fastify.register(async (fastifyInstance) => {
 
       openAiWs.on("message", (data) => {
         try {
-          const response = JSON.parse(data);
+          // ws can deliver a Buffer; normalize to string before JSON.parse
+          const text =
+            typeof data === "string" ? data : data.toString("utf8");
+          const response = JSON.parse(text);
 
           // TEMP: see everything
           console.log("OpenAI raw event:", response.type);
@@ -240,7 +243,15 @@ fastify.register(async (fastifyInstance) => {
             }
           }
 
-          if (response.type === "response.audio.delta" && response.audio) {
+          // MAIN HANDLER: forward OpenAI audio back to Twilio
+          if (response.type === "response.audio.delta") {
+            if (!response.delta) {
+              console.warn(
+                "response.audio.delta event received without a delta field"
+              );
+              return;
+            }
+
             // Don’t send audio to Twilio until we have a valid streamSid.
             if (!streamSid) {
               console.warn(
@@ -249,10 +260,20 @@ fastify.register(async (fastifyInstance) => {
               return;
             }
 
+            let audioPayload;
+            try {
+              // Decode + re-encode as a sanity check; Twilio still expects base64 in JSON.
+              const decoded = Buffer.from(response.delta, "base64");
+              audioPayload = decoded.toString("base64");
+            } catch (e) {
+              console.error("Failed to process audio delta base64:", e);
+              return;
+            }
+
             const audioDelta = {
               event: "media",
               streamSid,
-              media: { payload: response.audio }
+              media: { payload: audioPayload }
             };
             connection.send(JSON.stringify(audioDelta));
 
@@ -335,6 +356,10 @@ fastify.register(async (fastifyInstance) => {
               if (markQueue.length > 0) {
                 markQueue.shift();
               }
+              break;
+
+            case "stop":
+              console.log("Twilio stream stopped:", streamSid);
               break;
 
             default:
