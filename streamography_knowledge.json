@@ -1,31 +1,83 @@
 {
-  "about": "Streamography Productions is an audio/video, livestreaming, and podcast production company based in Gloucester, Massachusetts. We help clients tell their stories through live events, video, and audio content.",
+  "about": "Streamography Productions is a Gloucester, Massachusetts–based audio, video, and livestreaming company specializing in making events, stories, and conversations easy to share. We support everything from weddings and community events to corporate meetings, sports, and podcasts. Our goal is to make the tech invisible so people can focus on the moment, while we quietly handle the cameras, audio, lighting, and streaming.",
   "services": [
     {
-      "name": "Livestreaming",
-      "description": "Multi-camera livestreaming for weddings, corporate events, sports, and community events. Includes audio mixing and live switching."
+      "name": "Event Livestreaming",
+      "description": "Multi-camera or single-camera livestreams for weddings, celebrations of life, corporate meetings, sports, and community events. We handle on-site setup, audio, streaming destinations, and basic recording so guests can watch live or on replay.",
+      "idealClients": "Couples, families, nonprofits, churches, schools, and small businesses that want people to join remotely.",
+      "notesForAI": "Do NOT promise specific platforms or technical specs unless the caller mentions them. You can say we commonly stream to platforms like YouTube, Vimeo, or private links, and that we tailor the setup to the event."
     },
     {
-      "name": "Podcast Studio",
-      "description": "Studio and remote podcast production, including recording, editing, and help distributing episodes."
+      "name": "Full-Service Video Production",
+      "description": "Concept-to-delivery video production for brand stories, promos, testimonials, and social content. We help plan the shoot, capture high-quality footage, and handle editing, graphics, and delivery.",
+      "idealClients": "Small to mid-sized businesses, local organizations, and personal brands that need simple, clear storytelling without a Hollywood-sized crew.",
+      "notesForAI": "If callers ask about scripts or ideas, say we can help brainstorm and shape their message, even if they’re not sure what to say yet."
     },
     {
-      "name": "Event AV & Projection",
-      "description": "Audio, lighting, and projection support for events, including microphones, speakers, projectors, and screens."
+      "name": "Podcast Recording & Production",
+      "description": "Studio-quality podcast recording with professional mics, monitoring, and engineering, plus optional editing and distribution support. We make it easy for first-time hosts and experienced podcasters to create consistent episodes.",
+      "idealClients": "Business owners, professionals, and community leaders who want to build authority, share stories, or interview guests without worrying about the tech.",
+      "notesForAI": "If someone is nervous about starting a podcast, reassure them that we guide them through format, recording, and next steps. Encourage them to schedule a discovery call."
+    },
+    {
+      "name": "On-Location Audio & Video Support",
+      "description": "Portable audio, video, and projection support for meetings, panels, talks, and small events. This can include microphones, speakers, cameras, screens, and recording depending on the needs.",
+      "idealClients": "Local businesses, schools, churches, and organizations that need extra AV help for a specific event.",
+      "notesForAI": "If they ask, you can say we can often work with their existing in-house setup and supplement what’s missing, instead of replacing everything."
+    },
+    {
+      "name": "Lighting & Projection",
+      "description": "Event lighting and projection for stages, presentations, and special events. We focus on clean, functional lighting and clear visuals rather than flashy nightclub effects.",
+      "idealClients": "Events that need people and presenters to be well-lit on camera and in the room, with clear screens or projected content.",
+      "notesForAI": "Avoid overpromising specific fixtures. Emphasize that we design lighting and projection around the room, the event, and the cameras."
+    },
+    {
+      "name": "Family & Legacy Storytelling",
+      "description": "Recorded conversations, interviews, and legacy-style videos that capture family stories, memories, and milestones in a relaxed, guided way.",
+      "idealClients": "Families, grandparents, and adult children who want to preserve stories for future generations.",
+      "notesForAI": "If the caller seems sentimental or unsure where to start, suggest a simple first session where we guide with gentle questions and keep the tech simple."
     }
   ],
   "faq": [
     {
-      "q": "Where are you based?",
-      "a": "We are based in Gloucester, Massachusetts and serve the North Shore and Greater Boston areas."
+      "q": "Where are you located and what areas do you serve?",
+      "a": "We are based in Gloucester, Massachusetts, on the North Shore. We regularly serve Gloucester, Cape Ann, and surrounding North Shore communities. For larger projects or events, we can travel further by arrangement."
     },
     {
-      "q": "Do you travel for events?",
-      "a": "Yes, we travel for select events depending on schedule and logistics. Travel fees may apply."
+      "q": "Can you give me exact pricing over the phone?",
+      "a": "Our pricing is customized based on the event date, location, timing, crew needs, and deliverables. The AI assistant should not quote exact numbers. Instead, explain that we’ll put together a simple proposal after a quick discovery call with a human producer."
     },
     {
-      "q": "How do I get a quote?",
-      "a": "The fastest way is to schedule a quick production call so we can learn about your event and provide a tailored estimate."
+      "q": "How do I book a project or event with Streamography?",
+      "a": "The best next step is to schedule a short call with a producer so we can confirm the date, location, and needs. After that, we send a written proposal and agreement. A signed agreement and deposit are usually required to officially reserve the date."
+    },
+    {
+      "q": "Do you record the livestream so we can watch it later?",
+      "a": "For most livestream setups, we can record the event as well, but it should always be confirmed with a human producer in the proposal. The assistant should never guarantee a specific recording format or resolution—just say that recording is often available and can be discussed in the planning call."
+    },
+    {
+      "q": "Can you help if I’ve never done a livestream or video project before?",
+      "a": "Yes. A big part of what we do is walk clients through the process step by step. We explain options in plain language and help decide what’s essential versus ‘nice to have’ so the project feels manageable."
+    },
+    {
+      "q": "Do you only work with big events and companies?",
+      "a": "No. Streamography works with a mix of families, local organizations, and small to mid-sized businesses. Some projects are simple one-camera setups; others are more involved. The goal is to match the level of production to what the client actually needs."
+    },
+    {
+      "q": "What should I have ready before talking to a producer?",
+      "a": "Basic details like the event date, location, approximate timing, whether you need livestreaming, recording, or both, and where you expect people to watch from (in-person, online, or a mix). If you don’t know all the answers, that’s okay—a producer can help you sort it out."
+    },
+    {
+      "q": "Can you handle both in-person audio and the livestream audio?",
+      "a": "In many cases, yes. We can coordinate with the venue’s sound system or bring our own audio gear if needed. Exact details depend on the space, so it’s something we confirm during planning."
+    },
+    {
+      "q": "What if I just want help with a podcast or video idea, not a big production?",
+      "a": "That’s fine. We’re happy to start small—sometimes that means a simple studio session, a pilot episode, or a short test project to see what works before committing to something bigger."
+    },
+    {
+      "q": "What should the AI assistant do if it doesn’t know the answer to a question?",
+      "a": "The AI should say it’s not completely sure, avoid guessing, and invite the caller to schedule a call or request a follow-up from a human producer."
     }
   ]
 }
