@@ -3,9 +3,55 @@ import WebSocket from "ws";
 import dotenv from "dotenv";
 import fastifyFormBody from "@fastify/formbody";
 import fastifyWs from "@fastify/websocket";
+import fs from "fs"; // ⬅️ NEW
 
 dotenv.config();
+// --- Load Streamography knowledge (Phase 1: inline JSON) ---
+let streamographyKnowledge = {
+  about: "",
+  services: [],
+  faq: []
+};
 
+try {
+  const raw = fs.readFileSync("./streamography_knowledge.json", "utf8");
+  streamographyKnowledge = JSON.parse(raw);
+  console.log("Loaded Streamography knowledge file.");
+} catch (err) {
+  console.warn(
+    "Could not load streamography_knowledge.json; proceeding with minimal context.",
+    err.message
+  );
+}
+
+/**
+ * Build a compact knowledge snippet that we inject into the system message.
+ * Keep it short and factual so the model doesn’t get overwhelmed.
+ */
+function buildKnowledgeSnippet() {
+  const about = streamographyKnowledge.about || "";
+
+  const services = (streamographyKnowledge.services || [])
+    .map((s) => `- ${s.name}: ${s.description}`)
+    .join("\n");
+
+  const faq = (streamographyKnowledge.faq || [])
+    .map((f) => `Q: ${f.q}\nA: ${f.a}`)
+    .join("\n\n");
+
+  return `
+COMPANY CONTEXT: STREAMOGRAPHY PRODUCTIONS
+
+About:
+${about}
+
+Core Services:
+${services}
+
+Common Questions:
+${faq}
+`.trim();
+}
 const { OPENAI_API_KEY } = process.env;
 if (!OPENAI_API_KEY) {
   console.error("Missing OpenAI API key. Please set it in the .env file.");
@@ -18,8 +64,13 @@ fastify.register(fastifyWs);
 
 // ---- Natural voice + phone-optimized system message ----
 const SYSTEM_MESSAGE = `
-You are a warm, friendly, and naturally conversational AI assistant speaking on a phone call.
-Always speak English only, even if the audio is unclear.
+  "You are a helpful, friendly, and professionally conversational AI assistant for Streamography Productions, " +
+  "an audio/video, livestreaming, and podcast production company. " +
+  "You speak naturally and conversationally, like a real human—never like a robot. " +
+  "You are allowed to use light dad jokes and owl jokes when appropriate, but do not overdo it. " +
+  "Use only the Streamography information provided below when talking about services, pricing, or policies. " +
+  "If you are not sure about something, say you are not certain and invite the caller to schedule a call with a human producer.\n\n" +
+  buildKnowledgeSnippet();
 
 Voice style:
 - Use short, natural sentences.
