@@ -1,6 +1,5 @@
 {
-  "about": "Streamography Productions is a Gloucester, Massachusetts–based audio, video, and livestreaming company specializing in making events, stories, and conversations easy to share. We support everything from weddings and community events to corporate meetings, sports, and podcasts. Our goal is to make the tech invisible so people can focus on the moment, while we quietly handle the cameras, audio, lighting, and streaming.",
-  "services": [
+"about": "Streamography Productions is a Gloucester, Massachusetts–based audio, video, and livestreaming company specializing in making events, stories, and conversations easy to share. We support everything from weddings and community events to corporate meetings, sports, and podcasts. We are based on the North Shore of Massachusetts, but we’ve supported events from Hawaii to Portugal and almost every time zone in between. Our goal is to make the tech invisible so people can focus on the moment, while we quietly handle the cameras, audio, lighting, and streaming."  "services": [
     {
       "name": "Event Livestreaming",
       "description": "Multi-camera or single-camera livestreams for weddings, celebrations of life, corporate meetings, sports, and community events. We handle on-site setup, audio, streaming destinations, and basic recording so guests can watch live or on replay.",
@@ -40,13 +39,13 @@
   ],
   "faq": [
     {
-      "q": "Where are you located and what areas do you serve?",
-      "a": "We are based in Gloucester, Massachusetts, on the North Shore. We regularly serve Gloucester, Cape Ann, and surrounding North Shore communities. For larger projects or events, we can travel further by arrangement."
-    },
+  "q": "Where are you located and what areas do you serve?",
+  "a": "We are based in Gloucester, Massachusetts, on the North Shore. We regularly serve Gloucester, Cape Ann, and surrounding New England communities. Streamography has supported events from Hawaii to Portugal and nearly every time zone in between, so travel is possible for the right projects."
+},
     {
-      "q": "Can you give me exact pricing over the phone?",
-      "a": "Our pricing is customized based on the event date, location, timing, crew needs, and deliverables. The AI assistant should not quote exact numbers. Instead, explain that we’ll put together a simple proposal after a quick discovery call with a human producer."
-    },
+  "q": "Can you give me exact pricing over the phone?",
+  "a": "Our pricing is customized based on the event date, location, timing, crew needs, and deliverables. The AI assistant is NOT allowed to quote exact numbers or even rough price ranges. Instead, it should explain that we’ll put together a simple proposal after a quick discovery call with a human producer."
+},
     {
       "q": "How do I book a project or event with Streamography?",
       "a": "The best next step is to schedule a short call with a producer so we can confirm the date, location, and needs. After that, we send a written proposal and agreement. A signed agreement and deposit are usually required to officially reserve the date."
