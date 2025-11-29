@@ -66,7 +66,7 @@ fastify.register(fastifyWs);
 
 // ---- Natural voice + phone-optimized system message with "friendly geek" persona ----
 const SYSTEM_MESSAGE = `
-You are a helpful, friendly, slightly geeky, and professionally conversational AI assistant for Streamography Productions, 
+You are a helpful, friendly, slightly geeky, and professionally conversational AI assistant for Streamography Productions,
 an audio/video, livestreaming, and podcast production company.
 
 Your personality:
@@ -81,8 +81,8 @@ Your role:
 - Use the company information below as your source of truth.
 
 IMPORTANT COMPANY CONTEXT
-Only rely on the following Streamography information when discussing services, capabilities, locations, or policies. 
-Do NOT invent details. If something is not mentioned here, say you are not completely sure and suggest speaking 
+Only rely on the following Streamography information when discussing services, capabilities, locations, or policies.
+Do NOT invent details. If something is not mentioned here, say you are not completely sure and suggest speaking
 with a human producer.
 
 ${buildKnowledgeSnippet()}
@@ -90,7 +90,7 @@ ${buildKnowledgeSnippet()}
 Pricing rules (VERY IMPORTANT):
 - Never give specific prices, ranges, ballpark figures, budgets, or quotes.
 - If a caller asks about pricing, estimates, or "how much it costs," say something like:
-  "I don't have our current pricing in front of me, but we usually customize it based on the project. 
+  "I don't have our current pricing in front of me, but we usually customize it based on the project.
   I can help you get connected with a producer who can give you an exact quote."
 - You may talk about what affects pricing (scope, travel, crew size, etc.) but never state numbers or ranges.
 
@@ -103,6 +103,7 @@ Voice style:
 - Use short, natural sentences.
 - Use contractions ("I'm", "you're", "that's", "we'll") whenever they sound natural.
 - Sound relaxed, upbeat, slightly geeky, and human, not like a robot reading a script.
+- Keep a moderate speaking pace: not rushed, not painfully slow.
 
 Conversation style:
 - Keep most answers brief: 1–3 sentences unless the caller asks for more detail.
@@ -148,8 +149,8 @@ If you are not sure about something:
 - Offer what you can: explain the general idea, or suggest connecting with a human producer.
 `;
 
-// Keep using alloy; it handles phone compression well.
-const VOICE = "alloy";
+// Use "fable" voice – more natural & conversational
+const VOICE = "fable";
 // Currently unused, but kept for future tuning if needed.
 const TEMPERATURE = 0.8;
 const PORT = process.env.PORT || 5050;
@@ -292,8 +293,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
       };
 
       const handleSpeechStartedEvent = () => {
-        // Previously we aggressively truncated assistant audio here,
-        // which could chop off sentence endings. For now, just log.
+        // We avoid hard barge-in truncation here to prevent chopping sentences.
         console.log(
           "Detected speech start during assistant response (potential barge-in)."
         );
@@ -309,6 +309,24 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
           })
         );
         markQueue.push("responsePart");
+      };
+
+      // Helper to flush any buffered initial audio to Twilio
+      const flushPendingAudio = () => {
+        if (!streamSid || pendingAudioChunks.length === 0) return;
+
+        for (const payload of pendingAudioChunks) {
+          const audioDelta = {
+            event: "media",
+            streamSid,
+            media: { payload }
+          };
+          connection.send(JSON.stringify(audioDelta));
+          sendMark();
+        }
+
+        pendingAudioChunks = [];
+        hasFlushedInitialAudio = true;
       };
 
       openAiWs.on("open", () => {
@@ -345,6 +363,9 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
           }
 
           if (response.type === "response.done") {
+            // Ensure any short replies that never hit the buffer threshold still get sent
+            flushPendingAudio();
+
             aiResponseInProgress = false;
 
             if (response.response?.status === "failed") {
@@ -388,17 +409,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
               // Once we have enough buffered, flush them all at once
               if (pendingAudioChunks.length >= INITIAL_CHUNKS_BEFORE_FLUSH) {
-                for (const payload of pendingAudioChunks) {
-                  const audioDelta = {
-                    event: "media",
-                    streamSid,
-                    media: { payload }
-                  };
-                  connection.send(JSON.stringify(audioDelta));
-                  sendMark();
-                }
-                pendingAudioChunks = [];
-                hasFlushedInitialAudio = true;
+                flushPendingAudio();
               }
             } else {
               // After initial flush, stream normally
