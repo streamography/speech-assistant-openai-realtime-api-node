@@ -254,7 +254,7 @@ fastify.register(async (fastifyInstance) => {
               create_response: true,
               // More human if we don't hard-barge over ourselves.
               interrupt_response: false,
-              // Slightly lower threshold and longer pause to avoid cutting callers off.
+              // Slightly stricter threshold and longer pause: less talk-over.
               threshold: 0.75,
               silence_duration_ms: 900,
               prefix_padding_ms: 450
@@ -274,7 +274,7 @@ fastify.register(async (fastifyInstance) => {
         openAiWs.send(JSON.stringify(sessionUpdate));
       };
 
-            const maybeSendGreeting = () => {
+      const maybeSendGreeting = () => {
         // Only send the greeting once, and only after:
         // - Twilio stream has started (callReady)
         // - OpenAI session is updated (openAiSessionReady)
@@ -315,7 +315,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               }
             })
           );
-        }, 500); // you can experiment: 250–600ms
+        }, 500); // experiment with 250–600ms
       };
 
       const handleSpeechStartedEvent = () => {
