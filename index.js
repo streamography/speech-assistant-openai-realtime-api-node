@@ -104,6 +104,10 @@ Voice style:
 - Use contractions ("I'm", "you're", "that's", "we'll") whenever they sound natural.
 - Sound relaxed, upbeat, slightly geeky, and human, not like a robot reading a script.
 - Keep a moderate speaking pace: not rushed, not painfully slow.
+- Speak with a warm, smooth tone.
+- Avoid sharp or abrupt sentence starts.
+- Let the first syllable of each response come in gently.
+- Keep your cadence measured, like a friendly expert explaining something simply.
 
 Conversation style:
 - Keep most answers brief: 1–3 sentences unless the caller asks for more detail.
@@ -134,6 +138,11 @@ Pacing and turn-taking:
   - Wait for the caller to finish before you respond.
   - Keep your responses short, then let them talk again.
 - Do not talk over the caller. If they interrupt, stop and listen.
+- Respond at a relaxed, human pace.
+- Take a natural beat before speaking, as if you're thinking for a moment.
+- Do NOT jump in instantly after the caller speaks. A small pause is good.
+- Your delivery should sound slightly slower and smoother, not rushed or clipped.
+- When beginning a sentence, ease into it with natural pacing rather than starting abruptly.
 
 End-of-call behavior:
 - If the caller says something like:
@@ -207,7 +216,7 @@ fastify.register(async (fastifyInstance) => {
       // For smoothing audio starts: buffer a few chunks before sending.
       let pendingAudioChunks = [];
       let hasFlushedInitialAudio = false;
-      const INITIAL_CHUNKS_BEFORE_FLUSH = 4; // tune 3–6 if needed
+      const INITIAL_CHUNKS_BEFORE_FLUSH = 6; // tune 3–6 if needed
 
       // Handshake flags: Twilio call + OpenAI session readiness + greeting.
       let callReady = false; // Twilio "start" received, streamSid set
@@ -246,9 +255,9 @@ fastify.register(async (fastifyInstance) => {
               // More human if we don't hard-barge over ourselves.
               interrupt_response: false,
               // Slightly lower threshold and longer pause to avoid cutting callers off.
-              threshold: 0.6,
-              silence_duration_ms: 650,
-              prefix_padding_ms: 400
+              threshold: 0.75,
+              silence_duration_ms: 900,
+              prefix_padding_ms: 450
             },
 
             // Enable transcription
@@ -265,7 +274,11 @@ fastify.register(async (fastifyInstance) => {
         openAiWs.send(JSON.stringify(sessionUpdate));
       };
 
-      const maybeSendGreeting = () => {
+            const maybeSendGreeting = () => {
+        // Only send the greeting once, and only after:
+        // - Twilio stream has started (callReady)
+        // - OpenAI session is updated (openAiSessionReady)
+        // - WebSocket is actually open
         if (
           greetingSent ||
           !callReady ||
@@ -276,20 +289,33 @@ fastify.register(async (fastifyInstance) => {
         }
 
         greetingSent = true;
-        console.log("Sending initial greeting to caller");
+        console.log("Scheduling initial greeting to caller");
 
-        // Steer the first turn toward a natural greeting.
-        openAiWs.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              modalities: ["audio", "text"],
-              instructions: `${SYSTEM_MESSAGE}
+        // Small delay so the line feels more natural and less “instant robot”
+        setTimeout(() => {
+          // Safety check in case the socket closed in the meantime
+          if (openAiWs.readyState !== WebSocket.OPEN) {
+            console.warn(
+              "Skipped greeting because OpenAI WebSocket is no longer open."
+            );
+            return;
+          }
+
+          console.log("Sending initial greeting to caller now");
+
+          openAiWs.send(
+            JSON.stringify({
+              type: "response.create",
+              response: {
+                modalities: ["audio", "text"],
+                // Nudge the first reply toward a natural, friendly opening.
+                instructions: `${SYSTEM_MESSAGE}
 
 For your first reply, greet the caller in a warm, slightly geeky but professional way, and briefly ask how you can help today.`
-            }
-          })
-        );
+              }
+            })
+          );
+        }, 500); // you can experiment: 250–600ms
       };
 
       const handleSpeechStartedEvent = () => {
