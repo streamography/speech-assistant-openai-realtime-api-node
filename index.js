@@ -248,7 +248,7 @@ fastify.register(async (fastifyInstance) => {
               // Slightly lower threshold and longer pause to avoid cutting callers off.
               threshold: 0.6,
               silence_duration_ms: 650,
-              prefix_padding_ms: 300
+              prefix_padding_ms: 400
             },
 
             // Enable transcription
