@@ -158,8 +158,7 @@ If you are not sure about something:
 - Offer what you can: explain the general idea, or suggest connecting with a human producer.
 `;
 
-// Use "fable" voice – more natural & conversational
-const VOICE = "fable";
+const VOICE = "verse";
 // Currently unused, but kept for future tuning if needed.
 const TEMPERATURE = 0.8;
 const PORT = process.env.PORT || 5050;
