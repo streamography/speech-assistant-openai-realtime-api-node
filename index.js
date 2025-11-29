@@ -3,9 +3,10 @@ import WebSocket from "ws";
 import dotenv from "dotenv";
 import fastifyFormBody from "@fastify/formbody";
 import fastifyWs from "@fastify/websocket";
-import fs from "fs"; // ⬅️ NEW
+import fs from "fs";
 
 dotenv.config();
+
 // --- Load Streamography knowledge (Phase 1: inline JSON) ---
 let streamographyKnowledge = {
   about: "",
@@ -52,6 +53,7 @@ Common Questions:
 ${faq}
 `.trim();
 }
+
 const { OPENAI_API_KEY } = process.env;
 if (!OPENAI_API_KEY) {
   console.error("Missing OpenAI API key. Please set it in the .env file.");
@@ -62,10 +64,16 @@ const fastify = Fastify();
 fastify.register(fastifyFormBody);
 fastify.register(fastifyWs);
 
-// ---- Natural voice + phone-optimized system message ----
+// ---- Natural voice + phone-optimized system message with "friendly geek" persona ----
 const SYSTEM_MESSAGE = `
-You are a helpful, friendly, and professionally conversational AI assistant for Streamography Productions, 
+You are a helpful, friendly, slightly geeky, and professionally conversational AI assistant for Streamography Productions, 
 an audio/video, livestreaming, and podcast production company.
+
+Your personality:
+- You sound like a confident, approachable tech nerd who really knows his stuff.
+- You enjoy explaining things clearly and simply, without being condescending.
+- You’re warm, upbeat, and you genuinely like talking to people.
+- You can sprinkle in light, nerdy charm or dad-joke energy occasionally, but never overdo it.
 
 Your role:
 - Talk to callers like a real human support/sales rep on the phone.
@@ -94,7 +102,7 @@ Travel and locations:
 Voice style:
 - Use short, natural sentences.
 - Use contractions ("I'm", "you're", "that's", "we'll") whenever they sound natural.
-- Sound relaxed, upbeat, and human, not like a robot reading a script.
+- Sound relaxed, upbeat, slightly geeky, and human, not like a robot reading a script.
 
 Conversation style:
 - Keep most answers brief: 1–3 sentences unless the caller asks for more detail.
@@ -103,9 +111,19 @@ Conversation style:
   "Gotcha, you're asking about livestreaming your wedding ceremony. We can definitely help with that."
 - Avoid stiff phrases like "your call is important to us." Talk like a real person.
 
+Response openings:
+- Avoid starting every reply with the same word ("Okay", "Sure", "Great").
+- Vary your openings naturally: "Gotcha,", "Yeah, that makes sense,", "Absolutely,", "Good question," etc.
+- Do not respond with just a single word like "Okay." Always follow it with a helpful phrase.
+
+Response endings:
+- Try to finish with a complete, natural thought, not an abrupt cut.
+- Avoid trailing off with half sentences.
+- It’s fine to end with a short supportive phrase like "Happy to help with that." when appropriate.
+
 Personality:
 - Stay positive and encouraging.
-- Light dad jokes or playful humor are okay occasionally, but:
+- Light dad jokes or playful, geeky humor are okay occasionally, but:
   - Never joke about serious issues.
   - Never ignore someone’s concern just to make a joke.
 - If the caller seems stressed, focus on being calming and practical rather than funny.
@@ -185,6 +203,11 @@ fastify.register(async (fastifyInstance) => {
       // Track if the model is currently speaking (for logging / barge-in).
       let aiResponseInProgress = false;
 
+      // For smoothing audio starts: buffer a few chunks before sending.
+      let pendingAudioChunks = [];
+      let hasFlushedInitialAudio = false;
+      const INITIAL_CHUNKS_BEFORE_FLUSH = 4; // tune 3–6 if needed
+
       // Handshake flags: Twilio call + OpenAI session readiness + greeting.
       let callReady = false; // Twilio "start" received, streamSid set
       let openAiSessionReady = false; // OpenAI "session.updated" received
@@ -254,54 +277,26 @@ fastify.register(async (fastifyInstance) => {
         greetingSent = true;
         console.log("Sending initial greeting to caller");
 
-        // We keep using response.create, but nudge the model to start with a natural greeting.
+        // Steer the first turn toward a natural greeting.
         openAiWs.send(
           JSON.stringify({
             type: "response.create",
             response: {
               modalities: ["audio", "text"],
-              // Instructions are already in the session; here we just gently steer the first turn.
               instructions: `${SYSTEM_MESSAGE}
 
-For your first reply, greet the caller in a warm, natural way, and briefly ask how you can help today.`
+For your first reply, greet the caller in a warm, slightly geeky but professional way, and briefly ask how you can help today.`
             }
           })
         );
       };
 
       const handleSpeechStartedEvent = () => {
-        // User barge-in while we’re talking: truncate current answer,
-        // clear any queued marks, and let model listen again.
-        if (
-          markQueue.length > 0 &&
-          responseStartTimestampTwilio != null &&
-          streamSid
-        ) {
-          const elapsedTime =
-            latestMediaTimestamp - responseStartTimestampTwilio;
-
-          if (lastAssistantItem) {
-            const truncateEvent = {
-              type: "conversation.item.truncate",
-              item_id: lastAssistantItem,
-              content_index: 0,
-              audio_end_ms: elapsedTime
-            };
-            openAiWs.send(JSON.stringify(truncateEvent));
-          }
-
-          connection.send(
-            JSON.stringify({
-              event: "clear",
-              streamSid
-            })
-          );
-
-          markQueue = [];
-          lastAssistantItem = null;
-          responseStartTimestampTwilio = null;
-          aiResponseInProgress = false;
-        }
+        // Previously we aggressively truncated assistant audio here,
+        // which could chop off sentence endings. For now, just log.
+        console.log(
+          "Detected speech start during assistant response (potential barge-in)."
+        );
       };
 
       const sendMark = () => {
@@ -344,6 +339,9 @@ For your first reply, greet the caller in a warm, natural way, and briefly ask h
 
           if (response.type === "response.created") {
             aiResponseInProgress = true;
+            // New response: reset initial audio buffer
+            pendingAudioChunks = [];
+            hasFlushedInitialAudio = false;
           }
 
           if (response.type === "response.done") {
@@ -384,12 +382,34 @@ For your first reply, greet the caller in a warm, natural way, and briefly ask h
               return;
             }
 
-            const audioDelta = {
-              event: "media",
-              streamSid,
-              media: { payload: audioPayload }
-            };
-            connection.send(JSON.stringify(audioDelta));
+            // --- Smooth: buffer the first few chunks before sending ---
+            if (!hasFlushedInitialAudio) {
+              pendingAudioChunks.push(audioPayload);
+
+              // Once we have enough buffered, flush them all at once
+              if (pendingAudioChunks.length >= INITIAL_CHUNKS_BEFORE_FLUSH) {
+                for (const payload of pendingAudioChunks) {
+                  const audioDelta = {
+                    event: "media",
+                    streamSid,
+                    media: { payload }
+                  };
+                  connection.send(JSON.stringify(audioDelta));
+                  sendMark();
+                }
+                pendingAudioChunks = [];
+                hasFlushedInitialAudio = true;
+              }
+            } else {
+              // After initial flush, stream normally
+              const audioDelta = {
+                event: "media",
+                streamSid,
+                media: { payload: audioPayload }
+              };
+              connection.send(JSON.stringify(audioDelta));
+              sendMark();
+            }
 
             if (!responseStartTimestampTwilio) {
               responseStartTimestampTwilio = latestMediaTimestamp;
@@ -398,7 +418,6 @@ For your first reply, greet the caller in a warm, natural way, and briefly ask h
             if (response.item_id) {
               lastAssistantItem = response.item_id;
             }
-            sendMark();
           }
 
           if (response.type === "input_audio_buffer.speech_started") {
@@ -459,6 +478,8 @@ For your first reply, greet the caller in a warm, natural way, and briefly ask h
               aiResponseInProgress = false;
               markQueue = [];
               lastAssistantItem = null;
+              pendingAudioChunks = [];
+              hasFlushedInitialAudio = false;
 
               // Mark call as ready and attempt greeting (if OpenAI session is ready).
               callReady = true;
