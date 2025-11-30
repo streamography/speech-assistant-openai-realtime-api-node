@@ -187,10 +187,11 @@ fastify.get("/", async (_request, reply) => {
 });
 
 fastify.all("/incoming-call", async (request, reply) => {
+  const host = request.headers.host;
   const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${request.headers.host}/media-stream" />
+    <Stream url="wss://${host}/media-stream" />
   </Connect>
 </Response>`;
 
@@ -205,11 +206,9 @@ async function synthesizeWithGoogle(text) {
     input: { text },
     voice: {
       languageCode: "en-US",
-      // You can tweak this to a different Google voice later
       name: "en-US-Standard-F"
     },
     audioConfig: {
-      // Directly produce μ-law 8kHz, which Twilio expects
       audioEncoding: "MULAW",
       sampleRateHertz: 8000
     }
@@ -219,7 +218,6 @@ async function synthesizeWithGoogle(text) {
 
   if (!response.audioContent) return null;
 
-  // The client normally returns a Buffer already, but normalize just in case
   const buf = Buffer.isBuffer(response.audioContent)
     ? response.audioContent
     : Buffer.from(response.audioContent, "binary");
@@ -227,25 +225,34 @@ async function synthesizeWithGoogle(text) {
   return buf;
 }
 
-// ---- Helper: stream Google μ-law audio back to Twilio in small frames ----
+// ---- Helper: stream Google μ-law audio back to Twilio in 20ms frames ----
 function playGoogleTtsOnTwilio(streamSid, connection, audioBuffer) {
   if (!streamSid || !audioBuffer || audioBuffer.length === 0) return;
 
-  // Twilio sends 20ms frames of 160 μ-law bytes at 8kHz.
-  // We mimic that here for smooth playback.
+  // Twilio sends/receives 20ms frames of 160 μ-law bytes at 8kHz.
+  // We pace our outbound frames similarly.
   const FRAME_SIZE_BYTES = 160;
+  const FRAME_DURATION_MS = 20;
 
-  for (let offset = 0; offset < audioBuffer.length; offset += FRAME_SIZE_BYTES) {
+  let frameIndex = 0;
+  for (
+    let offset = 0;
+    offset < audioBuffer.length;
+    offset += FRAME_SIZE_BYTES, frameIndex++
+  ) {
     const chunk = audioBuffer.subarray(offset, offset + FRAME_SIZE_BYTES);
     const payload = chunk.toString("base64");
 
-    const audioDelta = {
-      event: "media",
-      streamSid,
-      media: { payload }
-    };
-
-    connection.send(JSON.stringify(audioDelta));
+    setTimeout(() => {
+      if (connection.readyState === 1) {
+        const audioDelta = {
+          event: "media",
+          streamSid,
+          media: { payload }
+        };
+        connection.send(JSON.stringify(audioDelta));
+      }
+    }, frameIndex * FRAME_DURATION_MS);
   }
 }
 
@@ -320,10 +327,6 @@ fastify.register(async (fastifyInstance) => {
       };
 
       const maybeSendGreeting = () => {
-        // Only send the greeting once, and only after:
-        // - Twilio stream has started (callReady)
-        // - OpenAI session is updated (openAiSessionReady)
-        // - WebSocket is actually open
         if (
           greetingSent ||
           !callReady ||
@@ -336,7 +339,6 @@ fastify.register(async (fastifyInstance) => {
         greetingSent = true;
         console.log("Scheduling initial greeting to caller");
 
-        // Small delay so the line feels more natural and less “instant robot”
         setTimeout(() => {
           if (openAiWs.readyState !== WebSocket.OPEN) {
             console.warn(
@@ -362,7 +364,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
       };
 
       const handleSpeechStartedEvent = () => {
-        // We avoid hard barge-in truncation here to prevent chopping sentences.
         console.log(
           "Detected speech start during assistant response (potential barge-in)."
         );
@@ -370,18 +371,15 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
       openAiWs.on("open", () => {
         console.log("Connected to OpenAI Realtime");
-        // Small delay just to be safe before sending session.update.
         setTimeout(initializeSession, 100);
       });
 
       openAiWs.on("message", async (data) => {
         try {
-          // ws can deliver a Buffer; normalize to string before JSON.parse
           const text =
             typeof data === "string" ? data : data.toString("utf8");
           const response = JSON.parse(text);
 
-          // TEMP: see everything
           console.log("OpenAI raw event:", response.type);
 
           if (LOG_EVENT_TYPES.includes(response.type)) {
@@ -400,11 +398,17 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
           }
 
           if (response.type === "response.output_text.delta") {
-            // In streaming mode, delta is the next text chunk
-            const deltaText =
-              typeof response.delta === "string"
-                ? response.delta
-                : response.delta?.content || "";
+            // Try to collect streaming text, but fall back to safe defaults
+            let deltaText = "";
+            if (typeof response.delta === "string") {
+              deltaText = response.delta;
+            } else if (typeof response.delta?.content === "string") {
+              deltaText = response.delta.content;
+            } else if (response.delta?.output_text) {
+              // Newer formats may nest text here
+              deltaText = response.delta.output_text;
+            }
+
             if (deltaText) {
               currentAssistantText += deltaText;
             }
@@ -418,6 +422,30 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
                 "Response failed details:",
                 JSON.stringify(response.response?.status_details, null, 2)
               );
+            }
+
+            // If we somehow didn't collect text via deltas, try to pull it from the final response
+            if (!currentAssistantText.trim()) {
+              try {
+                const r = response.response;
+                if (r?.output_text?.length) {
+                  currentAssistantText = r.output_text
+                    .flatMap((o) =>
+                      (o.content || [])
+                        .map((c) => c.text || "")
+                    )
+                    .join("");
+                } else if (r?.output?.length) {
+                  currentAssistantText = r.output
+                    .flatMap((o) =>
+                      (o.content || [])
+                        .map((c) => c.text || "")
+                    )
+                    .join("");
+                }
+              } catch (e) {
+                console.warn("Could not reconstruct text from response.done:", e);
+              }
             }
 
             // When the model has finished its turn, send the full text to Google TTS
@@ -481,7 +509,11 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
       connection.on("message", (message) => {
         try {
-          const data = JSON.parse(message);
+          const asString =
+            typeof message === "string" ? message : message.toString("utf8");
+          console.log("Raw Twilio WS message:", asString);
+
+          const data = JSON.parse(asString);
 
           switch (data.event) {
             case "media":
@@ -515,6 +547,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
             case "mark":
               // Not using mark queue here, but could log if needed
+              console.log("Twilio mark event:", data.mark);
               break;
 
             case "stop":
@@ -522,7 +555,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               break;
 
             default:
-              console.log("Twilio non-media event:", data.event);
+              console.log("Twilio non-media event:", data.event, data);
           }
         } catch (err) {
           console.error("Error parsing Twilio message:", err, message);
