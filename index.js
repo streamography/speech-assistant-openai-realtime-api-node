@@ -4,8 +4,13 @@ import dotenv from "dotenv";
 import fastifyFormBody from "@fastify/formbody";
 import fastifyWs from "@fastify/websocket";
 import fs from "fs";
+import textToSpeech from "@google-cloud/text-to-speech";
 
 dotenv.config();
+
+// --- Google Cloud TTS client ---
+// GOOGLE_APPLICATION_CREDENTIALS must point to your gcp-credentials.json
+const gcpTtsClient = new textToSpeech.TextToSpeechClient();
 
 // --- Load Streamography knowledge (Phase 1: inline JSON) ---
 let streamographyKnowledge = {
@@ -158,16 +163,15 @@ If you are not sure about something:
 - Offer what you can: explain the general idea, or suggest connecting with a human producer.
 `;
 
+// voice param is still sent to OpenAI, but only text comes back
 const VOICE = "verse";
-// Currently unused, but kept for future tuning if needed.
-const TEMPERATURE = 0.8;
 const PORT = process.env.PORT || 5050;
 
 const LOG_EVENT_TYPES = [
   "error",
   "response.created",
   "response.done",
-  "response.audio.delta",
+  "response.output_text.delta",
   "input_audio_buffer.committed",
   "input_audio_buffer.speech_stopped",
   "input_audio_buffer.speech_started",
@@ -177,9 +181,6 @@ const LOG_EVENT_TYPES = [
   "rate_limits.updated",
   "input_audio_transcription.completed"
 ];
-
-// Currently unused timing flag, kept for debugging if you want later.
-const SHOW_TIMING_MATH = false;
 
 fastify.get("/", async (_request, reply) => {
   reply.send({ message: "Twilio Media Stream Server is running!" });
@@ -196,6 +197,36 @@ fastify.all("/incoming-call", async (request, reply) => {
   reply.type("text/xml").send(twimlResponse);
 });
 
+// ---- Google TTS helper: text -> μ-law 8k base64 string ----
+async function synthesizeWithGoogle(text) {
+  if (!text || !text.trim()) return null;
+
+  const request = {
+    input: { text },
+    voice: {
+      languageCode: "en-US",
+      // You can change this to any supported Google voice
+      name: "en-US-Standard-F"
+    },
+    audioConfig: {
+      // Directly produce μ-law 8kHz, which Twilio expects
+      audioEncoding: "MULAW",
+      sampleRateHertz: 8000
+    }
+  };
+
+  const [response] = await gcpTtsClient.synthesizeSpeech(request);
+
+  if (!response.audioContent) return null;
+
+  // Ensure we have a Buffer, then convert to base64 for Twilio
+  const buf = Buffer.isBuffer(response.audioContent)
+    ? response.audioContent
+    : Buffer.from(response.audioContent, "binary");
+
+  return buf.toString("base64");
+}
+
 fastify.register(async (fastifyInstance) => {
   fastifyInstance.get(
     "/media-stream",
@@ -206,21 +237,18 @@ fastify.register(async (fastifyInstance) => {
       let streamSid = null;
       let latestMediaTimestamp = 0;
       let lastAssistantItem = null;
-      let markQueue = [];
       let responseStartTimestampTwilio = null;
 
       // Track if the model is currently speaking (for logging / barge-in).
       let aiResponseInProgress = false;
 
-      // For smoothing audio starts: buffer a few chunks before sending.
-      let pendingAudioChunks = [];
-      let hasFlushedInitialAudio = false;
-      const INITIAL_CHUNKS_BEFORE_FLUSH = 6; // tune 3–6 if needed
-
       // Handshake flags: Twilio call + OpenAI session readiness + greeting.
       let callReady = false; // Twilio "start" received, streamSid set
       let openAiSessionReady = false; // OpenAI "session.updated" received
       let greetingSent = false; // We have sent the initial response.create
+
+      // Buffer for assistant's text response (OpenAI -> Google TTS)
+      let currentAssistantText = "";
 
       const openAiWs = new WebSocket(
         "wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28",
@@ -238,28 +266,25 @@ fastify.register(async (fastifyInstance) => {
         const sessionUpdate = {
           type: "session.update",
           session: {
-            modalities: ["audio", "text"],
+            // We only need text back; we'll handle audio with Google TTS
+            modalities: ["text"],
             instructions: SYSTEM_MESSAGE,
             voice: VOICE,
 
-            // Twilio <-> OpenAI codec must match
+            // Twilio -> OpenAI input audio is μ-law 8k
             input_audio_format: "g711_ulaw",
-            output_audio_format: "g711_ulaw",
 
-            // ---- Tuned server VAD for more natural turn-taking on phone audio ----
+            // Natural server-side VAD for turn-taking
             turn_detection: {
               type: "server_vad",
-              // Let the model auto-create responses after each user turn.
               create_response: true,
-              // More human if we don't hard-barge over ourselves.
               interrupt_response: false,
-              // Slightly stricter threshold and longer pause: less talk-over.
               threshold: 0.75,
               silence_duration_ms: 900,
               prefix_padding_ms: 450
             },
 
-            // Enable transcription
+            // Enable transcription (for logging / future features)
             input_audio_transcription: {
               model: "whisper-1"
             }
@@ -292,7 +317,6 @@ fastify.register(async (fastifyInstance) => {
 
         // Small delay so the line feels more natural and less “instant robot”
         setTimeout(() => {
-          // Safety check in case the socket closed in the meantime
           if (openAiWs.readyState !== WebSocket.OPEN) {
             console.warn(
               "Skipped greeting because OpenAI WebSocket is no longer open."
@@ -306,15 +330,14 @@ fastify.register(async (fastifyInstance) => {
             JSON.stringify({
               type: "response.create",
               response: {
-                modalities: ["audio", "text"],
-                // Nudge the first reply toward a natural, friendly opening.
+                modalities: ["text"],
                 instructions: `${SYSTEM_MESSAGE}
 
 For your first reply, greet the caller in a warm, slightly geeky but professional way, and briefly ask how you can help today.`
               }
             })
           );
-        }, 500); // experiment with 250–600ms
+        }, 500);
       };
 
       const handleSpeechStartedEvent = () => {
@@ -324,43 +347,13 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
         );
       };
 
-      const sendMark = () => {
-        if (!streamSid) return;
-        connection.send(
-          JSON.stringify({
-            event: "mark",
-            streamSid,
-            mark: { name: "responsePart" }
-          })
-        );
-        markQueue.push("responsePart");
-      };
-
-      // Helper to flush any buffered initial audio to Twilio
-      const flushPendingAudio = () => {
-        if (!streamSid || pendingAudioChunks.length === 0) return;
-
-        for (const payload of pendingAudioChunks) {
-          const audioDelta = {
-            event: "media",
-            streamSid,
-            media: { payload }
-          };
-          connection.send(JSON.stringify(audioDelta));
-          sendMark();
-        }
-
-        pendingAudioChunks = [];
-        hasFlushedInitialAudio = true;
-      };
-
       openAiWs.on("open", () => {
         console.log("Connected to OpenAI Realtime");
         // Small delay just to be safe before sending session.update.
         setTimeout(initializeSession, 100);
       });
 
-      openAiWs.on("message", (data) => {
+      openAiWs.on("message", async (data) => {
         try {
           // ws can deliver a Buffer; normalize to string before JSON.parse
           const text =
@@ -382,15 +375,19 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
           if (response.type === "response.created") {
             aiResponseInProgress = true;
-            // New response: reset initial audio buffer
-            pendingAudioChunks = [];
-            hasFlushedInitialAudio = false;
+            currentAssistantText = "";
+          }
+
+          if (response.type === "response.output_text.delta") {
+            // Accumulate streaming text
+            const deltaText =
+              typeof response.delta === "string"
+                ? response.delta
+                : response.delta?.content || "";
+            currentAssistantText += deltaText;
           }
 
           if (response.type === "response.done") {
-            // Ensure any short replies that never hit the buffer threshold still get sent
-            flushPendingAudio();
-
             aiResponseInProgress = false;
 
             if (response.response?.status === "failed") {
@@ -399,60 +396,36 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
                 JSON.stringify(response.response?.status_details, null, 2)
               );
             }
-          }
 
-          // MAIN HANDLER: forward OpenAI audio back to Twilio
-          if (response.type === "response.audio.delta") {
-            if (!response.delta) {
-              console.warn(
-                "response.audio.delta event received without a delta field"
-              );
-              return;
-            }
+            // When the model has finished its turn, send the full text to Google TTS
+            if (streamSid && currentAssistantText.trim().length > 0) {
+              try {
+                console.log(
+                  "Final assistant text for TTS:",
+                  currentAssistantText
+                );
+                const base64Audio = await synthesizeWithGoogle(
+                  currentAssistantText
+                );
 
-            // Don’t send audio to Twilio until we have a valid streamSid.
-            if (!streamSid) {
-              console.warn(
-                "Skipping audio delta because streamSid is not set yet"
-              );
-              return;
-            }
-
-            let audioPayload;
-            try {
-              // Decode + re-encode as a sanity check; Twilio still expects base64 in JSON.
-              const decoded = Buffer.from(response.delta, "base64");
-              audioPayload = decoded.toString("base64");
-            } catch (e) {
-              console.error("Failed to process audio delta base64:", e);
-              return;
-            }
-
-            // --- Smooth: buffer the first few chunks before sending ---
-            if (!hasFlushedInitialAudio) {
-              pendingAudioChunks.push(audioPayload);
-
-              // Once we have enough buffered, flush them all at once
-              if (pendingAudioChunks.length >= INITIAL_CHUNKS_BEFORE_FLUSH) {
-                flushPendingAudio();
+                if (base64Audio) {
+                  const audioDelta = {
+                    event: "media",
+                    streamSid,
+                    media: { payload: base64Audio }
+                  };
+                  connection.send(JSON.stringify(audioDelta));
+                  responseStartTimestampTwilio = latestMediaTimestamp;
+                } else {
+                  console.warn(
+                    "Google TTS returned no audioContent for this response."
+                  );
+                }
+              } catch (ttsErr) {
+                console.error("Error calling Google TTS:", ttsErr);
+              } finally {
+                currentAssistantText = "";
               }
-            } else {
-              // After initial flush, stream normally
-              const audioDelta = {
-                event: "media",
-                streamSid,
-                media: { payload: audioPayload }
-              };
-              connection.send(JSON.stringify(audioDelta));
-              sendMark();
-            }
-
-            if (!responseStartTimestampTwilio) {
-              responseStartTimestampTwilio = latestMediaTimestamp;
-            }
-
-            if (response.item_id) {
-              lastAssistantItem = response.item_id;
             }
           }
 
@@ -460,8 +433,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
             handleSpeechStartedEvent();
           }
 
-          // With auto-response enabled, we don't need to manually
-          // trigger response.create on committed audio or transcription.
           if (response.type === "input_audio_buffer.committed") {
             console.log(
               "Input audio buffer committed for item:",
@@ -495,6 +466,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
             case "media":
               latestMediaTimestamp = data.media.timestamp;
               if (openAiWs.readyState === WebSocket.OPEN) {
+                // Forward caller audio to OpenAI
                 openAiWs.send(
                   JSON.stringify({
                     type: "input_audio_buffer.append",
@@ -512,10 +484,8 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               responseStartTimestampTwilio = null;
               latestMediaTimestamp = 0;
               aiResponseInProgress = false;
-              markQueue = [];
               lastAssistantItem = null;
-              pendingAudioChunks = [];
-              hasFlushedInitialAudio = false;
+              currentAssistantText = "";
 
               // Mark call as ready and attempt greeting (if OpenAI session is ready).
               callReady = true;
@@ -524,9 +494,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               break;
 
             case "mark":
-              if (markQueue.length > 0) {
-                markQueue.shift();
-              }
+              // No mark queue anymore, but we can log if needed
               break;
 
             case "stop":
