@@ -226,7 +226,7 @@ async function synthesizeWithGoogle(text) {
 }
 
 // ---- Helper: stream Google μ-law audio back to Twilio in 20ms frames ----
-function playGoogleTtsOnTwilio(streamSid, connection, audioBuffer) {
+function playGoogleTtsOnTwilio(streamSid, ws, audioBuffer) {
   if (!streamSid || !audioBuffer || audioBuffer.length === 0) return;
 
   // Twilio sends/receives 20ms frames of 160 μ-law bytes at 8kHz.
@@ -244,13 +244,13 @@ function playGoogleTtsOnTwilio(streamSid, connection, audioBuffer) {
     const payload = chunk.toString("base64");
 
     setTimeout(() => {
-      if (connection.readyState === 1) {
+      if (ws.readyState === WebSocket.OPEN) {
         const audioDelta = {
           event: "media",
           streamSid,
           media: { payload }
         };
-        connection.send(JSON.stringify(audioDelta));
+        ws.send(JSON.stringify(audioDelta));
       }
     }, frameIndex * FRAME_DURATION_MS);
   }
@@ -261,6 +261,9 @@ fastify.register(async (fastifyInstance) => {
     "/media-stream",
     { websocket: true },
     (connection, _req) => {
+      // IMPORTANT: connection.socket is the actual WebSocket
+      const ws = connection.socket;
+
       console.log("Twilio client connected");
 
       let streamSid = null;
@@ -405,7 +408,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
             } else if (typeof response.delta?.content === "string") {
               deltaText = response.delta.content;
             } else if (response.delta?.output_text) {
-              // Newer formats may nest text here
               deltaText = response.delta.output_text;
             }
 
@@ -462,7 +464,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
                 if (audioBuffer && audioBuffer.length > 0) {
                   responseStartTimestampTwilio = latestMediaTimestamp;
-                  playGoogleTtsOnTwilio(streamSid, connection, audioBuffer);
+                  playGoogleTtsOnTwilio(streamSid, ws, audioBuffer);
                 } else {
                   console.warn(
                     "Google TTS returned no audioContent for this response."
@@ -507,7 +509,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
         }
       });
 
-      connection.on("message", (message) => {
+      ws.on("message", (message) => {
         try {
           const asString =
             typeof message === "string" ? message : message.toString("utf8");
@@ -562,7 +564,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
         }
       });
 
-      connection.on("close", () => {
+      ws.on("close", () => {
         if (openAiWs.readyState === WebSocket.OPEN) {
           openAiWs.close();
         }
