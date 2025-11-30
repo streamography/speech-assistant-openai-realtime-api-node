@@ -61,7 +61,7 @@ ${faq}
 
 const { OPENAI_API_KEY } = process.env;
 if (!OPENAI_API_KEY) {
-  console.error("Missing OpenAI API key. Please set it in the .env file.");
+  console.error("Missing OPENAI_API_KEY. Please set it in the .env file.");
   process.exit(1);
 }
 
@@ -197,7 +197,7 @@ fastify.all("/incoming-call", async (request, reply) => {
   reply.type("text/xml").send(twimlResponse);
 });
 
-// ---- Google TTS helper: text -> μ-law 8k base64 string ----
+// ---- Google TTS helper: text -> μ-law 8k Buffer ----
 async function synthesizeWithGoogle(text) {
   if (!text || !text.trim()) return null;
 
@@ -205,7 +205,7 @@ async function synthesizeWithGoogle(text) {
     input: { text },
     voice: {
       languageCode: "en-US",
-      // You can change this to any supported Google voice
+      // You can tweak this to a different Google voice later
       name: "en-US-Standard-F"
     },
     audioConfig: {
@@ -219,12 +219,34 @@ async function synthesizeWithGoogle(text) {
 
   if (!response.audioContent) return null;
 
-  // Ensure we have a Buffer, then convert to base64 for Twilio
+  // The client normally returns a Buffer already, but normalize just in case
   const buf = Buffer.isBuffer(response.audioContent)
     ? response.audioContent
     : Buffer.from(response.audioContent, "binary");
 
-  return buf.toString("base64");
+  return buf;
+}
+
+// ---- Helper: stream Google μ-law audio back to Twilio in small frames ----
+function playGoogleTtsOnTwilio(streamSid, connection, audioBuffer) {
+  if (!streamSid || !audioBuffer || audioBuffer.length === 0) return;
+
+  // Twilio sends 20ms frames of 160 μ-law bytes at 8kHz.
+  // We mimic that here for smooth playback.
+  const FRAME_SIZE_BYTES = 160;
+
+  for (let offset = 0; offset < audioBuffer.length; offset += FRAME_SIZE_BYTES) {
+    const chunk = audioBuffer.subarray(offset, offset + FRAME_SIZE_BYTES);
+    const payload = chunk.toString("base64");
+
+    const audioDelta = {
+      event: "media",
+      streamSid,
+      media: { payload }
+    };
+
+    connection.send(JSON.stringify(audioDelta));
+  }
 }
 
 fastify.register(async (fastifyInstance) => {
@@ -236,7 +258,6 @@ fastify.register(async (fastifyInstance) => {
 
       let streamSid = null;
       let latestMediaTimestamp = 0;
-      let lastAssistantItem = null;
       let responseStartTimestampTwilio = null;
 
       // Track if the model is currently speaking (for logging / barge-in).
@@ -379,12 +400,14 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
           }
 
           if (response.type === "response.output_text.delta") {
-            // Accumulate streaming text
+            // In streaming mode, delta is the next text chunk
             const deltaText =
               typeof response.delta === "string"
                 ? response.delta
                 : response.delta?.content || "";
-            currentAssistantText += deltaText;
+            if (deltaText) {
+              currentAssistantText += deltaText;
+            }
           }
 
           if (response.type === "response.done") {
@@ -404,18 +427,14 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
                   "Final assistant text for TTS:",
                   currentAssistantText
                 );
-                const base64Audio = await synthesizeWithGoogle(
+
+                const audioBuffer = await synthesizeWithGoogle(
                   currentAssistantText
                 );
 
-                if (base64Audio) {
-                  const audioDelta = {
-                    event: "media",
-                    streamSid,
-                    media: { payload: base64Audio }
-                  };
-                  connection.send(JSON.stringify(audioDelta));
+                if (audioBuffer && audioBuffer.length > 0) {
                   responseStartTimestampTwilio = latestMediaTimestamp;
+                  playGoogleTtsOnTwilio(streamSid, connection, audioBuffer);
                 } else {
                   console.warn(
                     "Google TTS returned no audioContent for this response."
@@ -426,6 +445,8 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               } finally {
                 currentAssistantText = "";
               }
+            } else {
+              currentAssistantText = "";
             }
           }
 
@@ -484,7 +505,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               responseStartTimestampTwilio = null;
               latestMediaTimestamp = 0;
               aiResponseInProgress = false;
-              lastAssistantItem = null;
               currentAssistantText = "";
 
               // Mark call as ready and attempt greeting (if OpenAI session is ready).
@@ -494,7 +514,7 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               break;
 
             case "mark":
-              // No mark queue anymore, but we can log if needed
+              // Not using mark queue here, but could log if needed
               break;
 
             case "stop":
