@@ -1,18 +1,19 @@
 {
   "name": "speech-assistant-openai-realtime-api-node",
-  "version": "1.0.0",
-  "description": "Streamography speech assistant using Twilio, OpenAI Realtime, and Google Cloud Text-to-Speech",
-  "type": "module",
+  "version": "1.0.1",
+  "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "fastify": "^4.28.0",
-    "@fastify/formbody": "^7.4.0",
-    "@fastify/websocket": "^8.3.0",
-    "ws": "^8.18.0",
+    "@fastify/formbody": "^8.0.0",
+    "@fastify/websocket": "^11.0.0",
     "dotenv": "^16.4.5",
-    "@google-cloud/text-to-speech": "^6.4.0"
+    "fastify": "^5.0.0",
+    "ws": "^8.18.0"
   }
 }
