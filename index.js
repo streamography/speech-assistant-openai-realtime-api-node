@@ -54,7 +54,33 @@ ${faq}
 `.trim();
 }
 
-const { OPENAI_API_KEY } = process.env;
+// --- Technician notes storage (simple JSON log) ---
+let technicianNotes = [];
+const TECH_NOTES_PATH = "./technician_notes.json";
+
+try {
+  const rawNotes = fs.readFileSync(TECH_NOTES_PATH, "utf8");
+  technicianNotes = JSON.parse(rawNotes);
+  console.log("Loaded technician_notes.json with", technicianNotes.length, "entries.");
+} catch (err) {
+  console.warn(
+    "Could not load technician_notes.json; starting with an empty list.",
+    err.message
+  );
+  technicianNotes = [];
+}
+
+function appendTechnicianNote(note) {
+  try {
+    technicianNotes.push(note);
+    fs.writeFileSync(TECH_NOTES_PATH, JSON.stringify(technicianNotes, null, 2));
+    console.log("Appended technician note:", note);
+  } catch (err) {
+    console.error("Failed to append technician note:", err);
+  }
+}
+
+const { OPENAI_API_KEY, TECH_DIRECTOR_NUMBER } = process.env;
 if (!OPENAI_API_KEY) {
   console.error("Missing OpenAI API key. Please set it in the .env file.");
   process.exit(1);
@@ -64,40 +90,25 @@ const fastify = Fastify();
 fastify.register(fastifyFormBody);
 fastify.register(fastifyWs);
 
-// ---- Natural voice + phone-optimized system message with "friendly geek" persona ----
+// ---- Technician-focused system message ----
 const SYSTEM_MESSAGE = `
-You are a helpful, friendly, slightly geeky, and professionally conversational AI assistant for Streamography Productions,
-an audio/video, livestreaming, and podcast production company.
+You are a helpful, friendly, slightly geeky, and professionally conversational AI assistant
+for Streamography Productions. You are speaking primarily with STREAMOGRAPHY TECHNICIANS
+who are on-site at events and need quick, practical support.
 
-Your personality:
-- You sound like a confident, approachable tech nerd who really knows his stuff.
-- You enjoy explaining things clearly and simply, without being condescending.
-- You’re warm, upbeat, and you genuinely like talking to people.
-- You can sprinkle in light, nerdy charm or dad-joke energy occasionally, but never overdo it.
-
-Your role:
-- Talk to callers like a real human support/sales rep on the phone.
-- Be clear, warm, and confident.
-- Use the company information below as your source of truth.
-
-IMPORTANT COMPANY CONTEXT
-Only rely on the following Streamography information when discussing services, capabilities, locations, or policies.
-Do NOT invent details. If something is not mentioned here, say you are not completely sure and suggest speaking
-with a human producer.
+Your job:
+- Help technicians troubleshoot livestream, audio, lighting, projection, and recording issues.
+- Ask focused, practical questions to understand the setup and symptoms.
+- Offer clear, step-by-step suggestions that are safe and realistic in the field.
+- Use the Streamography context below when relevant, but prioritize practical problem-solving.
 
 ${buildKnowledgeSnippet()}
 
-Pricing rules (VERY IMPORTANT):
-- Never give specific prices, ranges, ballpark figures, budgets, or quotes.
-- If a caller asks about pricing, estimates, or "how much it costs," say something like:
-  "I don't have our current pricing in front of me, but we usually customize it based on the project.
-  I can help you get connected with a producer who can give you an exact quote."
-- You may talk about what affects pricing (scope, travel, crew size, etc.) but never state numbers or ranges.
-
-Travel and locations:
-- If callers ask how far Streamography travels, you may say:
-  "We’ve done work from Hawaii to Portugal and nearly every time zone in between."
-- Do NOT add extra locations or exaggerate. Use that sentence or a very close variation.
+Personality:
+- You sound like a confident, approachable tech nerd who really knows his stuff.
+- You enjoy explaining things clearly and simply, without being condescending.
+- You’re warm, upbeat, and you genuinely like helping coworkers under pressure.
+- Light, nerdy charm or dad-joke energy is okay occasionally, but never overdone.
 
 Voice style:
 - Use short, natural sentences.
@@ -106,56 +117,22 @@ Voice style:
 - Keep a moderate speaking pace: not rushed, not painfully slow.
 - Speak with a warm, smooth tone.
 - Avoid sharp or abrupt sentence starts.
-- Let the first syllable of each response come in gently.
-- Keep your cadence measured, like a friendly expert explaining something simply.
 
 Conversation style:
-- Keep most answers brief: 1–3 sentences unless the caller asks for more detail.
-- Ask one clear question at a time when you need more information.
-- Reflect back what the caller is asking before answering when helpful. Example:
-  "Gotcha, you're asking about livestreaming your wedding ceremony. We can definitely help with that."
-- Avoid stiff phrases like "your call is important to us." Talk like a real person.
-
-Response openings:
-- Avoid starting every reply with the same word ("Okay", "Sure", "Great").
-- Vary your openings naturally: "Gotcha,", "Yeah, that makes sense,", "Absolutely,", "Good question," etc.
-- Do not respond with just a single word like "Okay." Always follow it with a helpful phrase.
-
-Response endings:
-- Try to finish with a complete, natural thought, not an abrupt cut.
-- Avoid trailing off with half sentences.
-- It’s fine to end with a short supportive phrase like "Happy to help with that." when appropriate.
-
-Personality:
-- Stay positive and encouraging.
-- Light dad jokes or playful, geeky humor are okay occasionally, but:
-  - Never joke about serious issues.
-  - Never ignore someone’s concern just to make a joke.
-- If the caller seems stressed, focus on being calming and practical rather than funny.
-
-Pacing and turn-taking:
-- Imagine you are on a normal phone call:
-  - Wait for the caller to finish before you respond.
-  - Keep your responses short, then let them talk again.
-- Do not talk over the caller. If they interrupt, stop and listen.
-- Respond at a relaxed, human pace.
-- Take a natural beat before speaking, as if you're thinking for a moment.
-- Do NOT jump in instantly after the caller speaks. A small pause is good.
-- Your delivery should sound slightly slower and smoother, not rushed or clipped.
-- When beginning a sentence, ease into it with natural pacing rather than starting abruptly.
+- Assume the technician might be busy, stressed, or under time pressure.
+- Keep most answers brief: 1–3 sentences, followed by a clarifying question if needed.
+- Ask one clear question at a time.
+- Reflect back what the tech is trying to do before giving steps.
+  Example: "Gotcha, you're trying to get audio from the mixer into the camera. Let's check a couple things."
 
 End-of-call behavior:
-- If the caller says something like:
-  "That's all I needed", "I'm all set", "That answers my question", or "Thanks, I'm good now":
-  - Respond with a short, warm closing such as:
-    "You're very welcome, thanks for calling Streamography. Have a great day!"
-  - Optionally add one brief next step, like:
-    "If you think of anything else, you can always call back or visit our website."
-  - Then stop initiating new topics. Only speak again if the caller asks something else.
+- If the tech says they’re all set, wrap up with a short, warm closing and stop initiating new topics.
 
 If you are not sure about something:
 - Be honest. Say you don't have that exact information.
-- Offer what you can: explain the general idea, or suggest connecting with a human producer.
+- Offer a best-effort path, and suggest they escalate to the technical director if needed.
+- When appropriate, say something like:
+  "If this still isn’t behaving, you can call back and choose the option to reach the technical director."
 `;
 
 const VOICE = "verse";
@@ -185,17 +162,149 @@ fastify.get("/", async (_request, reply) => {
   reply.send({ message: "Twilio Media Stream Server is running!" });
 });
 
+/**
+ * MAIN VOICE ENTRYPOINT
+ * This now presents a simple IVR:
+ *  - Press 1 → AI tech support (OpenAI Realtime)
+ *  - Press 2 → Leave a technician note (recording saved & logged)
+ *  - Press 3 → Transfer to technical director (if TECH_DIRECTOR_NUMBER is configured)
+ */
 fastify.all("/incoming-call", async (request, reply) => {
   const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Connect>
-    <Stream url="wss://${request.headers.host}/media-stream" />
-  </Connect>
+  <Gather input="dtmf" numDigits="1" action="/menu-selection" timeout="6">
+    <Say voice="alice">
+      Thanks for calling the Streamography tech line.
+      Press 1 for live AI tech support.
+      Press 2 to leave a technician note about this event.
+      ${TECH_DIRECTOR_NUMBER ? "Press 3 to be connected to the technical director." : ""}
+    </Say>
+  </Gather>
+  <!-- If they don't press anything, repeat once and then hang up politely -->
+  <Say voice="alice">We didn’t receive any input. Goodbye.</Say>
+  <Hangup/>
 </Response>`;
 
   reply.type("text/xml").send(twimlResponse);
 });
 
+/**
+ * Handle menu selection from /incoming-call
+ */
+fastify.all("/menu-selection", async (request, reply) => {
+  const digits = (request.body && request.body.Digits) || request.query?.Digits || "";
+  const host = request.headers.host;
+
+  let twiml;
+
+  if (digits === "1") {
+    // AI tech support: connect Twilio Media Stream → /media-stream → OpenAI
+    twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Connecting you to the Streamography AI tech assistant.</Say>
+  <Connect>
+    <Stream url="wss://${host}/media-stream" />
+  </Connect>
+</Response>`;
+  } else if (digits === "2") {
+    // Leave technician note (recording)
+    twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">
+    After the tone, describe what happened, what fixed it, or anything future crews should know.
+    Press the pound key when you’re done.
+  </Say>
+  <Record
+    action="/handle-tech-note"
+    method="POST"
+    maxLength="180"
+    finishOnKey="#"
+    playBeep="true"
+  />
+  <Say voice="alice">We did not receive a recording. Goodbye.</Say>
+  <Hangup/>
+</Response>`;
+  } else if (digits === "3" && TECH_DIRECTOR_NUMBER) {
+    // Transfer to technical director
+    twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Connecting you to the technical director now.</Say>
+  <Dial>${TECH_DIRECTOR_NUMBER}</Dial>
+</Response>`;
+  } else {
+    // Invalid choice → back to main menu
+    twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Sorry, that was not a valid option.</Say>
+  <Redirect method="POST">/incoming-call</Redirect>
+</Response>`;
+  }
+
+  reply.type("text/xml").send(twiml);
+});
+
+/**
+ * Handle technician note recording callback.
+ * Twilio sends RecordingUrl, RecordingDuration, From, CallSid, etc.
+ * We store the metadata in technician_notes.json for later review / knowledge updates.
+ */
+fastify.all("/handle-tech-note", async (request, reply) => {
+  const {
+    RecordingUrl,
+    RecordingDuration,
+    From,
+    CallSid
+  } = request.body || {};
+
+  const note = {
+    type: "voice",
+    timestamp: new Date().toISOString(),
+    from: From || null,
+    callSid: CallSid || null,
+    recordingUrl: RecordingUrl || null,
+    recordingDurationSeconds: RecordingDuration ? Number(RecordingDuration) : null
+  };
+
+  appendTechnicianNote(note);
+
+  const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Thanks. Your technician note has been saved. Goodbye.</Say>
+  <Hangup/>
+</Response>`;
+
+  reply.type("text/xml").send(twimlResponse);
+});
+
+/**
+ * SMS entrypoint (same Twilio phone number).
+ * Any text message to this number is logged as a technician note.
+ */
+fastify.all("/incoming-sms", async (request, reply) => {
+  const { From, Body } = request.body || {};
+
+  const note = {
+    type: "sms",
+    timestamp: new Date().toISOString(),
+    from: From || null,
+    text: Body || ""
+  };
+  appendTechnicianNote(note);
+
+  const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Message>
+    Thanks, your note has been saved for future tech support.
+    If this is urgent, call the tech line and choose live support.
+  </Message>
+</Response>`;
+
+  reply.type("text/xml").send(twimlResponse);
+});
+
+// ------------------
+// OpenAI Realtime bridge (unchanged core logic)
+// ------------------
 fastify.register(async (fastifyInstance) => {
   fastifyInstance.get(
     "/media-stream",
@@ -274,10 +383,6 @@ fastify.register(async (fastifyInstance) => {
       };
 
       const maybeSendGreeting = () => {
-        // Only send the greeting once, and only after:
-        // - Twilio stream has started (callReady)
-        // - OpenAI session is updated (openAiSessionReady)
-        // - WebSocket is actually open
         if (
           greetingSent ||
           !callReady ||
@@ -290,9 +395,7 @@ fastify.register(async (fastifyInstance) => {
         greetingSent = true;
         console.log("Scheduling initial greeting to caller");
 
-        // Small delay so the line feels more natural and less “instant robot”
         setTimeout(() => {
-          // Safety check in case the socket closed in the meantime
           if (openAiWs.readyState !== WebSocket.OPEN) {
             console.warn(
               "Skipped greeting because OpenAI WebSocket is no longer open."
@@ -307,10 +410,10 @@ fastify.register(async (fastifyInstance) => {
               type: "response.create",
               response: {
                 modalities: ["audio", "text"],
-                // Nudge the first reply toward a natural, friendly opening.
                 instructions: `${SYSTEM_MESSAGE}
 
-For your first reply, greet the caller in a warm, slightly geeky but professional way, and briefly ask how you can help today.`
+For your first reply, greet the technician in a warm, slightly geeky but professional way,
+and briefly ask what they’re working on and what’s going wrong.`
               }
             })
           );
@@ -318,7 +421,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
       };
 
       const handleSpeechStartedEvent = () => {
-        // We avoid hard barge-in truncation here to prevent chopping sentences.
         console.log(
           "Detected speech start during assistant response (potential barge-in)."
         );
@@ -356,18 +458,15 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
       openAiWs.on("open", () => {
         console.log("Connected to OpenAI Realtime");
-        // Small delay just to be safe before sending session.update.
         setTimeout(initializeSession, 100);
       });
 
       openAiWs.on("message", (data) => {
         try {
-          // ws can deliver a Buffer; normalize to string before JSON.parse
           const text =
             typeof data === "string" ? data : data.toString("utf8");
           const response = JSON.parse(text);
 
-          // TEMP: see everything
           console.log("OpenAI raw event:", response.type);
 
           if (LOG_EVENT_TYPES.includes(response.type)) {
@@ -382,15 +481,12 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
           if (response.type === "response.created") {
             aiResponseInProgress = true;
-            // New response: reset initial audio buffer
             pendingAudioChunks = [];
             hasFlushedInitialAudio = false;
           }
 
           if (response.type === "response.done") {
-            // Ensure any short replies that never hit the buffer threshold still get sent
             flushPendingAudio();
-
             aiResponseInProgress = false;
 
             if (response.response?.status === "failed") {
@@ -401,7 +497,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
             }
           }
 
-          // MAIN HANDLER: forward OpenAI audio back to Twilio
           if (response.type === "response.audio.delta") {
             if (!response.delta) {
               console.warn(
@@ -410,7 +505,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               return;
             }
 
-            // Don’t send audio to Twilio until we have a valid streamSid.
             if (!streamSid) {
               console.warn(
                 "Skipping audio delta because streamSid is not set yet"
@@ -420,7 +514,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
             let audioPayload;
             try {
-              // Decode + re-encode as a sanity check; Twilio still expects base64 in JSON.
               const decoded = Buffer.from(response.delta, "base64");
               audioPayload = decoded.toString("base64");
             } catch (e) {
@@ -428,16 +521,13 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               return;
             }
 
-            // --- Smooth: buffer the first few chunks before sending ---
             if (!hasFlushedInitialAudio) {
               pendingAudioChunks.push(audioPayload);
 
-              // Once we have enough buffered, flush them all at once
               if (pendingAudioChunks.length >= INITIAL_CHUNKS_BEFORE_FLUSH) {
                 flushPendingAudio();
               }
             } else {
-              // After initial flush, stream normally
               const audioDelta = {
                 event: "media",
                 streamSid,
@@ -460,8 +550,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
             handleSpeechStartedEvent();
           }
 
-          // With auto-response enabled, we don't need to manually
-          // trigger response.create on committed audio or transcription.
           if (response.type === "input_audio_buffer.committed") {
             console.log(
               "Input audio buffer committed for item:",
@@ -508,7 +596,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               streamSid = data.start.streamSid;
               console.log("Incoming stream started:", streamSid);
 
-              // Reset per-call state
               responseStartTimestampTwilio = null;
               latestMediaTimestamp = 0;
               aiResponseInProgress = false;
@@ -517,7 +604,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               pendingAudioChunks = [];
               hasFlushedInitialAudio = false;
 
-              // Mark call as ready and attempt greeting (if OpenAI session is ready).
               callReady = true;
               greetingSent = false;
               maybeSendGreeting();
@@ -547,7 +633,6 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
         }
         console.log("Twilio client disconnected");
 
-        // Reset handshake flags
         callReady = false;
         openAiSessionReady = false;
         greetingSent = false;
