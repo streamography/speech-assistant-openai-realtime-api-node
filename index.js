@@ -56,7 +56,7 @@ ${faq}
 
 const { OPENAI_API_KEY } = process.env;
 if (!OPENAI_API_KEY) {
-  console.error("Missing OPENAI_API_KEY. Please set it in the .env file.");
+  console.error("Missing OpenAI API key. Please set it in the .env file.");
   process.exit(1);
 }
 
@@ -158,16 +158,16 @@ If you are not sure about something:
 - Offer what you can: explain the general idea, or suggest connecting with a human producer.
 `;
 
-// We now actually use OpenAI voice output
 const VOICE = "verse";
+// Currently unused, but kept for future tuning if needed.
+const TEMPERATURE = 0.8;
 const PORT = process.env.PORT || 5050;
 
 const LOG_EVENT_TYPES = [
   "error",
   "response.created",
   "response.done",
-  "response.output_text.delta",
-  "response.output_audio.delta",
+  "response.audio.delta",
   "input_audio_buffer.committed",
   "input_audio_buffer.speech_stopped",
   "input_audio_buffer.speech_started",
@@ -178,16 +178,18 @@ const LOG_EVENT_TYPES = [
   "input_audio_transcription.completed"
 ];
 
+// Currently unused timing flag, kept for debugging if you want later.
+const SHOW_TIMING_MATH = false;
+
 fastify.get("/", async (_request, reply) => {
   reply.send({ message: "Twilio Media Stream Server is running!" });
 });
 
 fastify.all("/incoming-call", async (request, reply) => {
-  const host = request.headers.host;
   const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${host}/media-stream" />
+    <Stream url="wss://${request.headers.host}/media-stream" />
   </Connect>
 </Response>`;
 
@@ -199,16 +201,21 @@ fastify.register(async (fastifyInstance) => {
     "/media-stream",
     { websocket: true },
     (connection, _req) => {
-      // IMPORTANT: connection.socket is the actual WebSocket
-      const ws = connection.socket;
-
       console.log("Twilio client connected");
 
       let streamSid = null;
       let latestMediaTimestamp = 0;
+      let lastAssistantItem = null;
+      let markQueue = [];
+      let responseStartTimestampTwilio = null;
 
       // Track if the model is currently speaking (for logging / barge-in).
       let aiResponseInProgress = false;
+
+      // For smoothing audio starts: buffer a few chunks before sending.
+      let pendingAudioChunks = [];
+      let hasFlushedInitialAudio = false;
+      const INITIAL_CHUNKS_BEFORE_FLUSH = 6; // tune 3–6 if needed
 
       // Handshake flags: Twilio call + OpenAI session readiness + greeting.
       let callReady = false; // Twilio "start" received, streamSid set
@@ -216,7 +223,6 @@ fastify.register(async (fastifyInstance) => {
       let greetingSent = false; // We have sent the initial response.create
 
       const openAiWs = new WebSocket(
-        // You can swap this to gpt-4o-realtime-preview if you want
         "wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28",
         {
           headers: {
@@ -232,28 +238,28 @@ fastify.register(async (fastifyInstance) => {
         const sessionUpdate = {
           type: "session.update",
           session: {
-            // We want both text (for logs) and audio (for Twilio)
-            modalities: ["text", "audio"],
+            modalities: ["audio", "text"],
             instructions: SYSTEM_MESSAGE,
             voice: VOICE,
 
-            // Twilio -> OpenAI input audio is μ-law 8k
+            // Twilio <-> OpenAI codec must match
             input_audio_format: "g711_ulaw",
-
-            // OpenAI -> Twilio output audio as μ-law 8k
             output_audio_format: "g711_ulaw",
 
-            // Natural server-side VAD for turn-taking
+            // ---- Tuned server VAD for more natural turn-taking on phone audio ----
             turn_detection: {
               type: "server_vad",
+              // Let the model auto-create responses after each user turn.
               create_response: true,
+              // More human if we don't hard-barge over ourselves.
               interrupt_response: false,
+              // Slightly stricter threshold and longer pause: less talk-over.
               threshold: 0.75,
               silence_duration_ms: 900,
               prefix_padding_ms: 450
             },
 
-            // Enable transcription (for logging / future features)
+            // Enable transcription
             input_audio_transcription: {
               model: "whisper-1"
             }
@@ -268,6 +274,10 @@ fastify.register(async (fastifyInstance) => {
       };
 
       const maybeSendGreeting = () => {
+        // Only send the greeting once, and only after:
+        // - Twilio stream has started (callReady)
+        // - OpenAI session is updated (openAiSessionReady)
+        // - WebSocket is actually open
         if (
           greetingSent ||
           !callReady ||
@@ -280,7 +290,9 @@ fastify.register(async (fastifyInstance) => {
         greetingSent = true;
         console.log("Scheduling initial greeting to caller");
 
+        // Small delay so the line feels more natural and less “instant robot”
         setTimeout(() => {
+          // Safety check in case the socket closed in the meantime
           if (openAiWs.readyState !== WebSocket.OPEN) {
             console.warn(
               "Skipped greeting because OpenAI WebSocket is no longer open."
@@ -294,32 +306,69 @@ fastify.register(async (fastifyInstance) => {
             JSON.stringify({
               type: "response.create",
               response: {
-                // No need to override modalities here; session already has audio
+                modalities: ["audio", "text"],
+                // Nudge the first reply toward a natural, friendly opening.
                 instructions: `${SYSTEM_MESSAGE}
 
 For your first reply, greet the caller in a warm, slightly geeky but professional way, and briefly ask how you can help today.`
               }
             })
           );
-        }, 500);
+        }, 500); // experiment with 250–600ms
       };
 
       const handleSpeechStartedEvent = () => {
+        // We avoid hard barge-in truncation here to prevent chopping sentences.
         console.log(
           "Detected speech start during assistant response (potential barge-in)."
         );
       };
 
+      const sendMark = () => {
+        if (!streamSid) return;
+        connection.send(
+          JSON.stringify({
+            event: "mark",
+            streamSid,
+            mark: { name: "responsePart" }
+          })
+        );
+        markQueue.push("responsePart");
+      };
+
+      // Helper to flush any buffered initial audio to Twilio
+      const flushPendingAudio = () => {
+        if (!streamSid || pendingAudioChunks.length === 0) return;
+
+        for (const payload of pendingAudioChunks) {
+          const audioDelta = {
+            event: "media",
+            streamSid,
+            media: { payload }
+          };
+          connection.send(JSON.stringify(audioDelta));
+          sendMark();
+        }
+
+        pendingAudioChunks = [];
+        hasFlushedInitialAudio = true;
+      };
+
       openAiWs.on("open", () => {
         console.log("Connected to OpenAI Realtime");
+        // Small delay just to be safe before sending session.update.
         setTimeout(initializeSession, 100);
       });
 
-      openAiWs.on("message", async (data) => {
+      openAiWs.on("message", (data) => {
         try {
+          // ws can deliver a Buffer; normalize to string before JSON.parse
           const text =
             typeof data === "string" ? data : data.toString("utf8");
           const response = JSON.parse(text);
+
+          // TEMP: see everything
+          console.log("OpenAI raw event:", response.type);
 
           if (LOG_EVENT_TYPES.includes(response.type)) {
             console.log(`OpenAI event: ${response.type}`, response);
@@ -333,9 +382,15 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
 
           if (response.type === "response.created") {
             aiResponseInProgress = true;
+            // New response: reset initial audio buffer
+            pendingAudioChunks = [];
+            hasFlushedInitialAudio = false;
           }
 
           if (response.type === "response.done") {
+            // Ensure any short replies that never hit the buffer threshold still get sent
+            flushPendingAudio();
+
             aiResponseInProgress = false;
 
             if (response.response?.status === "failed") {
@@ -346,19 +401,58 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
             }
           }
 
-          // This is the important part: audio from OpenAI -> Twilio
-          if (response.type === "response.output_audio.delta") {
-            if (!streamSid) return;
-            const base64Audio = response.delta;
-            if (!base64Audio) return;
+          // MAIN HANDLER: forward OpenAI audio back to Twilio
+          if (response.type === "response.audio.delta") {
+            if (!response.delta) {
+              console.warn(
+                "response.audio.delta event received without a delta field"
+              );
+              return;
+            }
 
-            if (ws.readyState === WebSocket.OPEN) {
+            // Don’t send audio to Twilio until we have a valid streamSid.
+            if (!streamSid) {
+              console.warn(
+                "Skipping audio delta because streamSid is not set yet"
+              );
+              return;
+            }
+
+            let audioPayload;
+            try {
+              // Decode + re-encode as a sanity check; Twilio still expects base64 in JSON.
+              const decoded = Buffer.from(response.delta, "base64");
+              audioPayload = decoded.toString("base64");
+            } catch (e) {
+              console.error("Failed to process audio delta base64:", e);
+              return;
+            }
+
+            // --- Smooth: buffer the first few chunks before sending ---
+            if (!hasFlushedInitialAudio) {
+              pendingAudioChunks.push(audioPayload);
+
+              // Once we have enough buffered, flush them all at once
+              if (pendingAudioChunks.length >= INITIAL_CHUNKS_BEFORE_FLUSH) {
+                flushPendingAudio();
+              }
+            } else {
+              // After initial flush, stream normally
               const audioDelta = {
                 event: "media",
                 streamSid,
-                media: { payload: base64Audio }
+                media: { payload: audioPayload }
               };
-              ws.send(JSON.stringify(audioDelta));
+              connection.send(JSON.stringify(audioDelta));
+              sendMark();
+            }
+
+            if (!responseStartTimestampTwilio) {
+              responseStartTimestampTwilio = latestMediaTimestamp;
+            }
+
+            if (response.item_id) {
+              lastAssistantItem = response.item_id;
             }
           }
 
@@ -366,6 +460,8 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
             handleSpeechStartedEvent();
           }
 
+          // With auto-response enabled, we don't need to manually
+          // trigger response.create on committed audio or transcription.
           if (response.type === "input_audio_buffer.committed") {
             console.log(
               "Input audio buffer committed for item:",
@@ -391,19 +487,14 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
         }
       });
 
-      ws.on("message", (message) => {
+      connection.on("message", (message) => {
         try {
-          const asString =
-            typeof message === "string" ? message : message.toString("utf8");
-          console.log("Raw Twilio WS message:", asString);
-
-          const data = JSON.parse(asString);
+          const data = JSON.parse(message);
 
           switch (data.event) {
             case "media":
               latestMediaTimestamp = data.media.timestamp;
               if (openAiWs.readyState === WebSocket.OPEN) {
-                // Forward caller audio to OpenAI
                 openAiWs.send(
                   JSON.stringify({
                     type: "input_audio_buffer.append",
@@ -418,8 +509,13 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               console.log("Incoming stream started:", streamSid);
 
               // Reset per-call state
+              responseStartTimestampTwilio = null;
               latestMediaTimestamp = 0;
               aiResponseInProgress = false;
+              markQueue = [];
+              lastAssistantItem = null;
+              pendingAudioChunks = [];
+              hasFlushedInitialAudio = false;
 
               // Mark call as ready and attempt greeting (if OpenAI session is ready).
               callReady = true;
@@ -428,7 +524,9 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               break;
 
             case "mark":
-              console.log("Twilio mark event:", data.mark);
+              if (markQueue.length > 0) {
+                markQueue.shift();
+              }
               break;
 
             case "stop":
@@ -436,14 +534,14 @@ For your first reply, greet the caller in a warm, slightly geeky but professiona
               break;
 
             default:
-              console.log("Twilio non-media event:", data.event, data);
+              console.log("Twilio non-media event:", data.event);
           }
         } catch (err) {
           console.error("Error parsing Twilio message:", err, message);
         }
       });
 
-      ws.on("close", () => {
+      connection.on("close", () => {
         if (openAiWs.readyState === WebSocket.OPEN) {
           openAiWs.close();
         }
