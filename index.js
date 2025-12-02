@@ -54,6 +54,68 @@ ${faq}
 `.trim();
 }
 
+// --- Hardware knowledge for tech troubleshooting ---
+let hardwareKnowledge = {
+  hardware: []
+};
+
+const HARDWARE_KNOWLEDGE_PATH = "./hardware_knowledge.json";
+
+try {
+  const rawHw = fs.readFileSync(HARDWARE_KNOWLEDGE_PATH, "utf8");
+  hardwareKnowledge = JSON.parse(rawHw);
+  console.log(
+    "Loaded hardware_knowledge.json with",
+    (hardwareKnowledge.hardware || []).length,
+    "items."
+  );
+} catch (err) {
+  console.warn(
+    "Could not load hardware_knowledge.json; proceeding with minimal hardware context.",
+    err.message
+  );
+  hardwareKnowledge = { hardware: [] };
+}
+
+/**
+ * Build a compact hardware snippet for the system message.
+ * We only send high-level info so we don't overwhelm the model.
+ */
+function buildHardwareSnippet() {
+  const items = hardwareKnowledge.hardware || [];
+  if (!items.length) {
+    return "No detailed hardware inventory loaded yet.";
+  }
+
+  const summaryLines = [];
+
+  // Group by category, and take a few examples per category.
+  const byCategory = {};
+  for (const hw of items) {
+    const category = hw.category || "other";
+    if (!byCategory[category]) byCategory[category] = [];
+    byCategory[category].push(hw);
+  }
+
+  for (const [category, list] of Object.entries(byCategory)) {
+    const examples = list
+      .slice(0, 3)
+      .map((hw) => `${hw.make} ${hw.model}`)
+      .join(", ");
+    summaryLines.push(`- ${category}: examples include ${examples}`);
+  }
+
+  return `
+STREAMOGRAPHY HARDWARE OVERVIEW
+
+You have access to an internal hardware map that includes common categories like cameras,
+switchers, graphics/NDI tools, converters, encoders, routers, audio gear, and cables.
+
+High-level examples:
+${summaryLines.join("\n")}
+`.trim();
+}
+
 // --- Technician notes storage (simple JSON log) ---
 let technicianNotes = [];
 const TECH_NOTES_PATH = "./technician_notes.json";
@@ -61,7 +123,11 @@ const TECH_NOTES_PATH = "./technician_notes.json";
 try {
   const rawNotes = fs.readFileSync(TECH_NOTES_PATH, "utf8");
   technicianNotes = JSON.parse(rawNotes);
-  console.log("Loaded technician_notes.json with", technicianNotes.length, "entries.");
+  console.log(
+    "Loaded technician_notes.json with",
+    technicianNotes.length,
+    "entries."
+  );
 } catch (err) {
   console.warn(
     "Could not load technician_notes.json; starting with an empty list.",
@@ -100,9 +166,13 @@ Your job:
 - Help technicians troubleshoot livestream, audio, lighting, projection, and recording issues.
 - Ask focused, practical questions to understand the setup and symptoms.
 - Offer clear, step-by-step suggestions that are safe and realistic in the field.
-- Use the Streamography context below when relevant, but prioritize practical problem-solving.
+- Use the company and hardware information below when relevant, but prioritize practical problem-solving.
 
+COMPANY / SERVICE CONTEXT:
 ${buildKnowledgeSnippet()}
+
+HARDWARE CONTEXT:
+${buildHardwareSnippet()}
 
 Personality:
 - You sound like a confident, approachable tech nerd who really knows his stuff.
@@ -124,6 +194,12 @@ Conversation style:
 - Ask one clear question at a time.
 - Reflect back what the tech is trying to do before giving steps.
   Example: "Gotcha, you're trying to get audio from the mixer into the camera. Let's check a couple things."
+
+Background noise & chatter:
+- Assume there may be crowd noise, PA audio, or side conversations near the technician.
+- Only respond when it sounds like someone is clearly talking directly to you (full sentences or clear questions).
+- Ignore faint background speech, audience reactions, or random noises.
+- If you’re not sure they’re talking to you, wait a moment instead of jumping in.
 
 End-of-call behavior:
 - If the tech says they’re all set, wrap up with a short, warm closing and stop initiating new topics.
@@ -192,7 +268,8 @@ fastify.all("/incoming-call", async (request, reply) => {
  * Handle menu selection from /incoming-call
  */
 fastify.all("/menu-selection", async (request, reply) => {
-  const digits = (request.body && request.body.Digits) || request.query?.Digits || "";
+  const digits =
+    (request.body && request.body.Digits) || request.query?.Digits || "";
   const host = request.headers.host;
 
   let twiml;
@@ -249,12 +326,7 @@ fastify.all("/menu-selection", async (request, reply) => {
  * We store the metadata in technician_notes.json for later review / knowledge updates.
  */
 fastify.all("/handle-tech-note", async (request, reply) => {
-  const {
-    RecordingUrl,
-    RecordingDuration,
-    From,
-    CallSid
-  } = request.body || {};
+  const { RecordingUrl, RecordingDuration, From, CallSid } = request.body || {};
 
   const note = {
     type: "voice",
@@ -262,7 +334,9 @@ fastify.all("/handle-tech-note", async (request, reply) => {
     from: From || null,
     callSid: CallSid || null,
     recordingUrl: RecordingUrl || null,
-    recordingDurationSeconds: RecordingDuration ? Number(RecordingDuration) : null
+    recordingDurationSeconds: RecordingDuration
+      ? Number(RecordingDuration)
+      : null
   };
 
   appendTechnicianNote(note);
@@ -303,7 +377,7 @@ fastify.all("/incoming-sms", async (request, reply) => {
 });
 
 // ------------------
-// OpenAI Realtime bridge (unchanged core logic)
+// OpenAI Realtime bridge
 // ------------------
 fastify.register(async (fastifyInstance) => {
   fastifyInstance.get(
@@ -362,10 +436,10 @@ fastify.register(async (fastifyInstance) => {
               create_response: true,
               // More human if we don't hard-barge over ourselves.
               interrupt_response: false,
-              // Slightly stricter threshold and longer pause: less talk-over.
-              threshold: 0.75,
-              silence_duration_ms: 900,
-              prefix_padding_ms: 450
+              // Less sensitive: require stronger speech / clearer pauses.
+              threshold: 0.9,
+              silence_duration_ms: 1400,
+              prefix_padding_ms: 500
             },
 
             // Enable transcription
