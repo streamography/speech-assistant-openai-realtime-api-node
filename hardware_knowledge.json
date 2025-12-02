@@ -1,0 +1,847 @@
+{
+  "hardware": [
+    {
+      "id": "vmix_rig_general",
+      "make": "PC / vMix",
+      "model": "vMix Production PC",
+      "category": "switcher_software",
+      "priority": "critical",
+      "common_uses": [
+        "Primary software switcher for multi-camera livestreams",
+        "Graphics, overlays, lower thirds, playback clips, and recording",
+        "NDI ingest from cameras, laptops, and graphics machines"
+      ],
+      "failure_modes": [
+        "vMix preview/program frozen or dropped frames",
+        "NDI inputs not appearing",
+        "No audio levels in vMix",
+        "Output not reaching streaming destination (YouTube, Vimeo, RMTP, etc.)"
+      ],
+      "field_troubleshooting": [
+        "Verify vMix is not in 'Pause' or 'Replay' mode by accident.",
+        "Check CPU and GPU load; close browsers and background apps if the system is pegged.",
+        "For missing NDI inputs, verify the camera or sender is on the same network/VLAN and NDI tools see it.",
+        "Confirm vMix output settings: correct streaming profile, bitrate, resolution, and target RTMP URL/key.",
+        "If program looks fine but stream is offline, test upstream by opening speedtest.net and checking upload speed.",
+        "Have techs note scene name, input names, and what changed just before failure (new source, new title, etc.)."
+      ],
+      "field_notes": [
+        "Document per-event: vMix version, scene/template used, number of inputs, and max CPU/GPU load.",
+        "If you change any virtual audio routing (VB-Audio, ASIO, etc.), record what was changed for the next tech."
+      ]
+    },
+
+    {
+      "id": "canon_vixia_hf_g21",
+      "make": "Canon",
+      "model": "Vixia HF G21",
+      "category": "camera",
+      "priority": "high",
+      "common_uses": [
+        "Base camera for single-cam and simple multi-cam streams",
+        "Locked-off shots for ceremonies, speakers, or commentators"
+      ],
+      "failure_modes": [
+        "No signal coming into capture device or switcher",
+        "Soft focus / out of focus subjects",
+        "Over- or under-exposed image in mixed lighting"
+      ],
+      "field_troubleshooting": [
+        "Confirm camera is powered (battery or AC), lens cap off, and HDMI/SDI fully seated.",
+        "Check output settings: ensure HDMI is enabled and not set to 'clean off' modes that change output unexpectedly.",
+        "For focus issues, switch to One-Shot AF on center point, focus on subject’s eye/chest, then lock focus if needed.",
+        "In high contrast rooms, start with full auto and then gently adjust exposure via iris and gain rather than shutter.",
+        "If image isn’t showing on vMix/ATEM, try a different cable and a different input to isolate cable vs camera vs device."
+      ],
+      "field_notes": [
+        "At the end of shows, have techs note: gain level, shutter, and whether they were forced into high-gain/noisy modes.",
+        "If a specific G21 body behaves differently, tag it in notes so it can be serviced or reserved for lower-stakes shows."
+      ]
+    },
+
+    {
+      "id": "canon_xa55_family",
+      "make": "Canon",
+      "model": "XA55 / XA50 family",
+      "category": "camera",
+      "priority": "critical",
+      "common_uses": [
+        "Primary cameras for multi-camera professional livestreams",
+        "NDI/SDI/HDMI feeds into vMix and ATEM switchers"
+      ],
+      "failure_modes": [
+        "Auto-focus hunting during low light or fast motion",
+        "No SDI/HDMI signal at the switcher/encoder",
+        "Color mismatch with other cameras on the show"
+      ],
+      "field_troubleshooting": [
+        "In low light, avoid full continuous AF; use One-Shot AF or Face Priority and reduce how often you half-press.",
+        "Check the output format (1080i vs 1080p, frame rate) matches switcher/project settings; mismatches cause 'No Signal'.",
+        "If picture is milky or noisy, verify internal ND filters and gain; techs should log what ND and gain they ended up on.",
+        "When matching cameras, start with Canon preset profiles and tweak white balance and saturation, not extreme custom curves."
+      ],
+      "field_notes": [
+        "Technicians should record: project frame rate, output format, AF mode, ND/gain choices, and any AF failure scenarios.",
+        "If a body consistently loses AF under certain stage lighting, log details for future pre-show AF strategy."
+      ]
+    },
+
+    {
+      "id": "lilliput_7in_monitors",
+      "make": "Lilliput",
+      "model": "CT770S series",
+      "category": "monitor",
+      "priority": "medium",
+      "common_uses": [
+        "Field confidence monitors on cameras or director table",
+        "Program/preview reference when main multiview is far away"
+      ],
+      "failure_modes": [
+        "No image on monitor",
+        "Wrong aspect ratio or zoomed-in view",
+        "Color/brightness radically off from program feed"
+      ],
+      "field_troubleshooting": [
+        "Check HDMI/SDI cable is fully seated on both ends; swap cable if in doubt.",
+        "Verify the input source (HDMI/SDI) on the monitor matches the cable used.",
+        "When image looks crushed or stretched, reset aspect/zoom settings in monitor menu.",
+        "If the monitor looks wildly different from program, use it only as a framing reference and rely on the main program monitor for color."
+      ],
+      "field_notes": [
+        "Log which monitors are best for focus peaking and which have weaker panels.",
+        "Note any unit where the power barrel is loose or intermittent."
+      ]
+    },
+
+    {
+      "id": "decimator_md_hx",
+      "make": "Decimator",
+      "model": "MD-HX",
+      "category": "converter",
+      "priority": "high",
+      "common_uses": [
+        "HDMI/SDI cross-conversion and scaling",
+        "Feeding old projectors or displays with odd resolutions",
+        "Cleanup between mismatched camera/switcher formats"
+      ],
+      "failure_modes": [
+        "No output signal while input is live",
+        "Wrong resolution/frame rate getting to downstream device",
+        "Confusion between IN/OUT ports and loop-through"
+      ],
+      "field_troubleshooting": [
+        "Confirm which port is input (SDI/HDMI) and that LEDs show lock.",
+        "Use the built-in LCD/menu to verify input format and set output format to what the downstream gear expects.",
+        "If downstream device won’t sync, try a more common format (1080p30 or 1080i59.94) and re-test.",
+        "Power-cycle the MD-HX and reseat SDI/HDMI if behavior looks inconsistent."
+      ],
+      "field_notes": [
+        "Record any recurring problematic format combos (e.g., certain projectors hating 1080p60).",
+        "Note which shows required unusual scaling so future techs can reuse those settings."
+      ]
+    },
+
+    {
+      "id": "jtech_sdi_splitter",
+      "make": "J-Tech Digital",
+      "model": "1x4 SDI Splitter JTDSDI0104",
+      "category": "distribution",
+      "priority": "medium",
+      "common_uses": [
+        "Splitting a single SDI program feed to multiple monitors/recorders",
+        "Feeding IMAG, lobby displays, and record decks simultaneously"
+      ],
+      "failure_modes": [
+        "Some outputs work while others are dead",
+        "Intermittent dropouts when all outputs are used",
+        "Downstream devices not locking to signal"
+      ],
+      "field_troubleshooting": [
+        "Verify the SDI source is clean by testing a single direct run first.",
+        "Check that total SDI cable length from source → splitter → destination stays within spec.",
+        "If only one output is needed, try a different output port to rule out a single bad jack.",
+        "If multiple far-runs cause issues, reduce how many distant loads you are driving from one splitter."
+      ],
+      "field_notes": [
+        "Note any output jacks that behave flaky so they can be avoided.",
+        "Document typical cable runs (lengths/destinations) used on big shows."
+      ]
+    },
+
+    {
+      "id": "atem_mini_pro",
+      "make": "Blackmagic Design",
+      "model": "ATEM Mini Pro",
+      "category": "switcher",
+      "priority": "high",
+      "common_uses": [
+        "Small four-input HDMI switcher for simple streams",
+        "Backup or portable switcher for remote shows"
+      ],
+      "failure_modes": [
+        "No program output on HDMI or USB-C",
+        "Inputs not showing video even though cameras are on",
+        "Streaming direct from the ATEM fails while local recording works"
+      ],
+      "field_troubleshooting": [
+        "Confirm each input is sending 1080-compatible formats; the Mini Pro is picky about resolutions/frame rates.",
+        "Test each camera directly into a monitor to rule out camera/cable issues.",
+        "Check ATEM Software Control for correct program/preview routing and streaming profile.",
+        "If USB-C webcam output is missing, try a different cable and USB port on the computer."
+      ],
+      "field_notes": [
+        "Record which cameras and frame rates paired well with the Mini Pro on each show.",
+        "Note any shows where the ATEM streaming profile had to be lowered for bandwidth reasons."
+      ]
+    },
+
+    {
+      "id": "atem_streaming_bridge",
+      "make": "Blackmagic Design",
+      "model": "ATEM Streaming Bridge",
+      "category": "decoder",
+      "priority": "medium",
+      "common_uses": [
+        "Receiving ATEM program feeds over the internet",
+        "Sending video to remote venues or overflow rooms"
+      ],
+      "failure_modes": [
+        "No video even though ATEM is streaming",
+        "Frequent stutters or drops on receive side",
+        "IP/port configuration confusion"
+      ],
+      "field_troubleshooting": [
+        "Verify the Streaming Bridge has the correct IP and that the ATEM profile being used matches.",
+        "Check firewalls/NAT settings; ATEM must be able to reach the Bridge’s public-facing address.",
+        "If the link is unreliable, have techs test a lower bitrate profile or a different network path.",
+        "Log ISP, upload speed, and any VPN use when issues happen."
+      ],
+      "field_notes": [
+        "Document working IP/port schemes used per venue for quick reuse.",
+        "Note specific ISPs or venues that gave trouble so future techs can plan redundancy."
+      ]
+    },
+
+    {
+      "id": "aja_io_4k_plus",
+      "make": "AJA",
+      "model": "Io 4K Plus",
+      "category": "io_interface",
+      "priority": "high",
+      "common_uses": [
+        "SDI/HDMI capture and playout into vMix or NLEs",
+        "High-quality I/O for Mac/PC workflows"
+      ],
+      "failure_modes": [
+        "Computer not seeing the device",
+        "No video in software despite signal present at SDI/HDMI",
+        "Audio not embedding/de-embedding correctly"
+      ],
+      "field_troubleshooting": [
+        "Confirm AJA drivers and control panel are installed and up to date.",
+        "Check input routing in AJA Control Panel matches the physical connection (SDI vs HDMI, channel selection).",
+        "Verify project resolution/frame rate in vMix/NLE matches the incoming signal.",
+        "Try a different Thunderbolt cable/port if the device disappears from the system."
+      ],
+      "field_notes": [
+        "Record which driver/firmware versions are stable so future updates can be evaluated against that baseline.",
+        "Log any quirks with specific host laptops (e.g., certain USB-C/Thunderbolt ports)."
+      ]
+    },
+
+    {
+      "id": "liveu_solo",
+      "make": "LiveU",
+      "model": "Solo HDMI",
+      "category": "bonded_encoder",
+      "priority": "critical",
+      "common_uses": [
+        "Primary bonded encoder for field livestreams",
+        "Streaming from venues without reliable wired internet"
+      ],
+      "failure_modes": [
+        "Unit will not go live or stays in 'connecting'",
+        "Severe buffering despite seemingly good cellular",
+        "RTMP destination errors"
+      ],
+      "field_troubleshooting": [
+        "Verify all modems/SIMs are active and have signal; disable any dead modems to avoid dragging the group down.",
+        "Check that Wi-Fi and Ethernet connections are either intentionally used or disabled—avoid a bad Wi-Fi pulling the group down.",
+        "Confirm RTMP URL/key exactly matches the destination settings (case-sensitive).",
+        "If venue upload is poor, lower bitrate and/or resolution and retry.",
+        "Have techs record upload tests (speedtest) before and after issues for post-event review."
+      ],
+      "field_notes": [
+        "Document which carriers perform best at each venue.",
+        "Note any shows where Solo needed manual modem disable/enable so future techs can anticipate."
+      ]
+    },
+
+    {
+      "id": "liveu_solo_pro",
+      "make": "LiveU",
+      "model": "Solo Pro HDMI",
+      "category": "bonded_encoder",
+      "priority": "critical",
+      "common_uses": [
+        "Higher-end bonded streaming with more modems or 5G",
+        "Flagship encoder for premium events"
+      ],
+      "failure_modes": [
+        "Same as Solo plus advanced bonding misconfigurations",
+        "Battery/runtime issues under long events"
+      ],
+      "field_troubleshooting": [
+        "Treat initial checks like the Solo: carrier health, bonding state, RTMP settings.",
+        "Monitor battery runtime and log any unexpected drops or thermal throttling.",
+        "If a single carrier is weak, adjust weighting or temporarily remove it from bonding pool."
+      ],
+      "field_notes": [
+        "Log per-venue carrier performance and bonding configs that worked best.",
+        "Record any firmware versions tied to stability problems."
+      ]
+    },
+
+    {
+      "id": "starlink_kit",
+      "make": "Starlink",
+      "model": "UTR-211 kit",
+      "category": "satellite_internet",
+      "priority": "critical",
+      "common_uses": [
+        "Primary or backup internet at rural/remote venues",
+        "Uplink for encoders like LiveU, vMix, or ATEM"
+      ],
+      "failure_modes": [
+        "Dish fails to connect or stays in 'searching'",
+        "Bandwidth dips below safe streaming thresholds",
+        "Mounting/location issues blocking view"
+      ],
+      "field_troubleshooting": [
+        "Set up with a clear view of the sky; avoid trees and tall buildings.",
+        "Allow enough warm-up time before show to confirm stable throughput.",
+        "Run speedtests and note sustained upload; adjust stream bitrate to leave 50% headroom.",
+        "If it keeps dropping, consider moving the dish, lowering bitrate, or giving LiveU more cellular weight."
+      ],
+      "field_notes": [
+        "Record each venue’s Starlink performance and obstructions for future planning.",
+        "Note best mounting solutions used (tripod, rooftop, etc.)."
+      ]
+    },
+
+    {
+      "id": "network_switch_tplink_poe",
+      "make": "TP-Link",
+      "model": "TL-SG116P",
+      "category": "network_switch",
+      "priority": "high",
+      "common_uses": [
+        "PoE switch for NDI cameras and networked gear",
+        "Core switch for show LAN"
+      ],
+      "failure_modes": [
+        "Some NDI/NDI-HX sources not appearing",
+        "Random dropouts on certain ports",
+        "PoE under-powering devices"
+      ],
+      "field_troubleshooting": [
+        "Make sure critical devices are connected to the switch, not daisy-chained through cheap unmanaged switches.",
+        "Check total PoE budget vs connected devices; unplug non-essential PoE loads if problems appear.",
+        "Verify all show devices are on the same VLAN/subnet.",
+        "Log which ports feed which devices on each show for quick tracing."
+      ],
+      "field_notes": [
+        "Document per-show network diagrams and port usage.",
+        "Note any ports that show recurring issues so they can be tested or avoided."
+      ]
+    },
+
+    {
+      "id": "network_router_archer_c54",
+      "make": "TP-Link",
+      "model": "Archer C54",
+      "category": "router",
+      "priority": "medium",
+      "common_uses": [
+        "Portable show router for local Wi-Fi and DHCP",
+        "Management network for NDI/vMix",
+        "Guest or staff Wi-Fi at events"
+      ],
+      "failure_modes": [
+        "Clients dropping from Wi-Fi",
+        "NDI traffic getting choked by consumer router limits",
+        "IP conflicts with venue network"
+      ],
+      "field_troubleshooting": [
+        "Avoid putting heavy NDI traffic over Wi-Fi; keep NDI wired where possible.",
+        "Use a dedicated LAN with your own IP range; don’t bridge blindly into venue networks.",
+        "If router is overloaded, reduce client count or offload non-critical devices."
+      ],
+      "field_notes": [
+        "Log SSID/password and IP range used per show.",
+        "Note any venue networks that caused conflicts so you can pre-plan static ranges next time."
+      ]
+    },
+
+    {
+      "id": "att_hub",
+      "make": "AT&T",
+      "model": "BGW530-900",
+      "category": "cellular_gateway",
+      "priority": "medium",
+      "common_uses": [
+        "Fixed wireless or backup internet at certain venues"
+      ],
+      "failure_modes": [
+        "Low bandwidth or high latency",
+        "LAN conflicts with show router addressing"
+      ],
+      "field_troubleshooting": [
+        "Check signal strength and run speed tests before relying on it.",
+        "Avoid double-NAT headaches by deciding which device will be the main router.",
+        "If being used only as a modem, configure bridge-like behavior where possible."
+      ],
+      "field_notes": [
+        "Record venues where this hub performs well vs poorly.",
+        "Note preferred internal IP map when combining with your own router."
+      ]
+    },
+
+    {
+      "id": "tmobile_hub",
+      "make": "T-Mobile",
+      "model": "JT2C394C3",
+      "category": "cellular_gateway",
+      "priority": "medium",
+      "common_uses": [
+        "Backup internet or secondary WAN path for bonding"
+      ],
+      "failure_modes": [
+        "Poor signal inside venues",
+        "Carrier deprioritization at crowded events"
+      ],
+      "field_troubleshooting": [
+        "Place near windows/higher locations to improve signal.",
+        "Test throughput at show start and during peak crowd.",
+        "If bandwidth is weak, use as a secondary path, not primary."
+      ],
+      "field_notes": [
+        "Log speed results by venue and time of day.",
+        "Note any throttling behaviors so they can be anticipated."
+      ]
+    },
+
+    {
+      "id": "zoom_h6_essential",
+      "make": "Zoom",
+      "model": "H6 Essential",
+      "category": "field_recorder",
+      "priority": "high",
+      "common_uses": [
+        "Portable multichannel recorder for commentary, podcasts, and backup",
+        "Interface feeding cameras or switcher with mixed audio"
+      ],
+      "failure_modes": [
+        "No audio recorded despite meters moving",
+        "Incorrect input source or phantom power issues",
+        "Recorder not feeding camera/switcher correctly"
+      ],
+      "field_troubleshooting": [
+        "Confirm SD card is inserted, formatted, and there is record time available.",
+        "Double-check which inputs are armed and that phantom power is on only where required.",
+        "If sending audio to cameras/switchers, verify output level (line vs mic) matches destination.",
+        "Have techs slate or verbally label tracks at the top of recording for later post clarity."
+      ],
+      "field_notes": [
+        "Record typical gain settings per mic model (e.g., BPHS1 commentary vs handhelds).",
+        "Note any specific channels or jacks that are flaky."
+      ]
+    },
+
+    {
+      "id": "zoom_p4",
+      "make": "Zoom",
+      "model": "PodTrak P4",
+      "category": "podcast_recorder",
+      "priority": "medium",
+      "common_uses": [
+        "Table-top podcasting and small panel recordings",
+        "Backup to main audio system"
+      ],
+      "failure_modes": [
+        "Guests recorded too quietly or clipping",
+        "Headphone mixes not set correctly",
+        "USB interface issues to computer"
+      ],
+      "field_troubleshooting": [
+        "Set conservative gain at setup and have each guest do a loudness check.",
+        "Check each headphone bus; ensure the right mix is assigned.",
+        "If using USB, confirm host computer sees P4 as an audio device and sample rate matches session."
+      ],
+      "field_notes": [
+        "Log per-show gain and headphone preferences if recurring hosts/guests.",
+        "Note any quirks with specific DAWs or recording software."
+      ]
+    },
+
+    {
+      "id": "behringer_flow8",
+      "make": "Behringer",
+      "model": "Flow 8",
+      "category": "mixer",
+      "priority": "high",
+      "common_uses": [
+        "Compact digital mixer for small shows and commentary",
+        "Feeding main mix to encoders and in-room PA"
+      ],
+      "failure_modes": [
+        "No audio output to stream despite meters moving",
+        "Bluetooth/app connection issues",
+        "Routing confusion between main and aux mixes"
+      ],
+      "field_troubleshooting": [
+        "Check main LR routing and that the correct bus is feeding the encoder.",
+        "Verify physical outputs (XLR vs TRS) and cabling.",
+        "If app control fails, power-cycle the mixer and reconnect Bluetooth/Wi-Fi.",
+        "Document which inputs are used for which mics/instruments at line check."
+      ],
+      "field_notes": [
+        "Capture snapshots/scenes used for recurring show formats.",
+        "Note any venues where gain staging or feedback were tricky."
+      ]
+    },
+
+    {
+      "id": "pyle_pmx848bt",
+      "make": "Pyle",
+      "model": "PMX848BT",
+      "category": "mixer",
+      "priority": "medium",
+      "common_uses": [
+        "Budget mixer for simple events or backup audio",
+        "Basic mic + music mixing for local PA or stream"
+      ],
+      "failure_modes": [
+        "Unclear routing between main outputs and monitors",
+        "Bluetooth pairing confusion",
+        "No signal at main outs despite channel activity"
+      ],
+      "field_troubleshooting": [
+        "Check channel assignment (L/R, subgroups) and master faders.",
+        "Confirm the correct output jacks are feeding the encoder/amp.",
+        "Avoid relying on Bluetooth for mission-critical program audio when possible."
+      ],
+      "field_notes": [
+        "Record typical fader positions and gain structure when used for similar shows.",
+        "Note any noisy channels or jacks for maintenance."
+      ]
+    },
+
+    {
+      "id": "mackie_hm4",
+      "make": "Mackie",
+      "model": "HM-4",
+      "category": "headphone_amp",
+      "priority": "low",
+      "common_uses": [
+        "Splitting one headphone feed to multiple listeners",
+        "Talent monitoring for commentary and podcasts"
+      ],
+      "failure_modes": [
+        "Listeners hearing different levels or nothing",
+        "Noisy or distorted output at high gain"
+      ],
+      "field_troubleshooting": [
+        "Ensure a strong, clean input level from the source before cranking HM-4 knobs.",
+        "Check each output with known good headphones and cable.",
+        "Avoid daisy-chaining too many headphone amps."
+      ],
+      "field_notes": [
+        "Log which positions on the HM-4 are typically used (1–4) so flaky jacks can be flagged.",
+        "Record any notes on preferred headphone models for talent comfort."
+      ]
+    },
+
+    {
+      "id": "audio_technica_bphs1",
+      "make": "Audio-Technica",
+      "model": "BPHS1",
+      "category": "headset_mic",
+      "priority": "medium",
+      "common_uses": [
+        "Commentator headsets for sports and live events"
+      ],
+      "failure_modes": [
+        "Low or thin vocal tone",
+        "Excessive room noise or plosives",
+        "Crackling cable near the connector"
+      ],
+      "field_troubleshooting": [
+        "Position the mic just off the corner of the mouth, not directly in front.",
+        "Roll a little low-cut on the mixer to tame rumble.",
+        "If crackling occurs when moving, check strain reliefs and swap cables where possible.",
+        "Have commentators do a quick loudness and pronunciation test pre-show."
+      ],
+      "field_notes": [
+        "Record which headsets have known cable issues so they can be re-cabled or benched.",
+        "Note gain/EQ settings that give a good tone for typical commentators."
+      ]
+    },
+
+    {
+      "id": "elgato_stream_deck",
+      "make": "Elgato",
+      "model": "Stream Deck (various serials)",
+      "category": "controller",
+      "priority": "medium",
+      "common_uses": [
+        "Macro control for vMix, OBS, Companion, or other show tools",
+        "Quick triggers for graphics, overlays, and camera cuts"
+      ],
+      "failure_modes": [
+        "Buttons not triggering actions",
+        "Profile not loading on correct machine/user",
+        "USB connection drops mid-show"
+      ],
+      "field_troubleshooting": [
+        "Ensure Stream Deck software is running and correct profile is loaded.",
+        "Verify Companion or vMix shortcuts are correctly mapped.",
+        "Use direct USB connections, avoid unpowered hubs.",
+        "Have a backup method for mission-critical triggers (keyboard shortcuts, vMix web controller)."
+      ],
+      "field_notes": [
+        "Save and label per-show Stream Deck profiles so any tech can reload them.",
+        "Document which macros are essential vs nice-to-have for each show type."
+      ]
+    },
+
+    {
+      "id": "elgato_camlink_4k",
+      "make": "Elgato",
+      "model": "Camlink 4k",
+      "category": "capture_device",
+      "priority": "medium",
+      "common_uses": [
+        "Single-camera HDMI capture into a laptop",
+        "Backup capture path when other I/O fails"
+      ],
+      "failure_modes": [
+        "Computer not seeing Camlink as a source",
+        "No video despite signal",
+        "Overheating in tight spaces"
+      ],
+      "field_troubleshooting": [
+        "Try a direct USB 3.0 port; avoid hubs and long extensions.",
+        "Confirm camera output format is supported (1080p, not weird resolutions).",
+        "If it disappears mid-show, try a quick unplug/replug and re-select device in software.",
+        "Keep the Camlink physically separated from heat sources where possible."
+      ],
+      "field_notes": [
+        "Record which laptops and ports have been most stable.",
+        "Note any cameras/formats that don’t play nice with Camlink."
+      ]
+    },
+
+    {
+      "id": "atomos_ninja_flame",
+      "make": "Atomos",
+      "model": "Ninja Flame",
+      "category": "monitor_recorder",
+      "priority": "medium",
+      "common_uses": [
+        "On-camera monitor + ProRes recording",
+        "Backup recording for high-stakes shows"
+      ],
+      "failure_modes": [
+        "No input signal from camera",
+        "Drive not recognized",
+        "Overheating in hot venues"
+      ],
+      "field_troubleshooting": [
+        "Confirm HDMI cabling and camera output settings (no HDCP, correct resolution).",
+        "Check SSD is correctly formatted for Atomos.",
+        "Monitor temperature and use shade/airflow where possible.",
+        "Verify record is rolling and timecode is advancing before leaving camera unattended."
+      ],
+      "field_notes": [
+        "Log SSD models and any compatibility quirks.",
+        "Record per-show whether Atomos footage was needed so techs see its value."
+      ]
+    },
+
+    {
+      "id": "laptops_streamtuf_conceptd",
+      "make": "Various",
+      "model": "StreamTuf (Asus Tufbook), StreamTab (Concept D)",
+      "category": "production_computer",
+      "priority": "high",
+      "common_uses": [
+        "Running vMix, graphics, or playback",
+        "NDI send/receive and control surfaces"
+      ],
+      "failure_modes": [
+        "Thermal throttling under heavy loads",
+        "USB/Thunderbolt instability with capture devices",
+        "Power issues when adapters are forgotten or loose"
+      ],
+      "field_troubleshooting": [
+        "Ensure high-performance power mode and plug into AC for shows.",
+        "Lift rear of laptop slightly for airflow; avoid soft surfaces.",
+        "Keep capture devices on short, robust cables and test all ports before show.",
+        "Always note when a laptop had to run at reduced settings (fewer inputs, lower resolution)."
+      ],
+      "field_notes": [
+        "Per laptop, log max stable load: number of inputs, typical CPU/GPU usage, and codecs.",
+        "Note any ports that are flaky or any specific capture devices that prefer specific ports."
+      ]
+    },
+
+    {
+      "id": "generic_hdmi_cables",
+      "make": "Various",
+      "model": "HDMI (1–3ft, 6–15ft, 25ft, 50ft)",
+      "category": "cable",
+      "priority": "medium",
+      "common_uses": [
+        "Camera to switcher/recorder connections",
+        "Laptop to monitor/projector"
+      ],
+      "failure_modes": [
+        "Intermittent signal drops or no signal at all",
+        "Issues at long distances or higher resolutions"
+      ],
+      "field_troubleshooting": [
+        "Always test with a known-good spare cable before blaming devices.",
+        "For long runs (25ft+), use quality cables and/or active/extender solutions.",
+        "Avoid tight bends and high-tension runs; re-route if signal drops when cable is moved."
+      ],
+      "field_notes": [
+        "Have techs mark any suspect cables and pull them from rotation.",
+        "Log distances and resolutions used when HDMI behaves marginally."
+      ]
+    },
+
+    {
+      "id": "generic_sdi_cables",
+      "make": "Various",
+      "model": "SDI (1–3ft up to 300ft)",
+      "category": "cable",
+      "priority": "high",
+      "common_uses": [
+        "Long-run video between cameras, converters, and switchers"
+      ],
+      "failure_modes": [
+        "Sparkles, dropouts, or no signal on long runs",
+        "Failed connectors due to strain or repeated coiling"
+      ],
+      "field_troubleshooting": [
+        "Swap in a known-good cable of similar length to isolate failures.",
+        "Verify run length is appropriate for cable grade and resolution (1080p vs 4K).",
+        "Check for crushed or kinked sections, especially near connectors."
+      ],
+      "field_notes": [
+        "Have techs log which SDI lengths were used on which cams per show.",
+        "Tag and retire any cable that fails even once during a show."
+      ]
+    },
+
+    {
+      "id": "generic_ethernet_cables",
+      "make": "Various",
+      "model": "Ethernet (1–300ft)",
+      "category": "cable",
+      "priority": "high",
+      "common_uses": [
+        "NDI, Dante, control, and internet connectivity"
+      ],
+      "failure_modes": [
+        "Intermittent NDI drops or control loss",
+        "PoE devices resetting under load"
+      ],
+      "field_troubleshooting": [
+        "Test suspect cables with a network tester when possible.",
+        "Avoid kinking or running cables alongside power for long distances.",
+        "For PoE gear, ensure cables are not damaged and are appropriate category/quality."
+      ],
+      "field_notes": [
+        "Log which runs carry PoE vs data-only.",
+        "Tag any cable that fails a test and pull from show stock."
+      ]
+    },
+
+    {
+      "id": "generic_xlr_cables",
+      "make": "Various",
+      "model": "XLR (3ft–100ft)",
+      "category": "cable",
+      "priority": "high",
+      "common_uses": [
+        "Balanced audio runs between mics, mixers, and recorders",
+        "Sometimes used as 3-pin DMX in a pinch"
+      ],
+      "failure_modes": [
+        "Hum, buzz, or intermittent audio",
+        "Broken latch or loose pins"
+      ],
+      "field_troubleshooting": [
+        "Swap cable first when audio cuts out or crackles.",
+        "Avoid using XLR for DMX on critical shows; if you must, clearly label it DMX.",
+        "Check for bent pins or loose strain reliefs."
+      ],
+      "field_notes": [
+        "Track which cables are used with which mics to see patterns in failures.",
+        "Mark and retire problematic cables quickly."
+      ]
+    },
+
+    {
+      "id": "generic_power_distribution",
+      "make": "Various",
+      "model": "Power Cords, Tri-taps, Power Strips, Starfish",
+      "category": "power",
+      "priority": "critical",
+      "common_uses": [
+        "Providing safe, distributed AC power to gear racks and camera positions"
+      ],
+      "failure_modes": [
+        "Loose plugs causing intermittent power loss",
+        "Overloaded strips or daisy-chained power blocks",
+        "Trip hazards from poor cable management"
+      ],
+      "field_troubleshooting": [
+        "Ensure all connections are fully seated and strain-relieved.",
+        "Avoid daisy-chaining strips; distribute load across multiple circuits.",
+        "Tape or cover walkways, especially where power and signal meet.",
+        "Note any strips that feel hot or smell off and pull them from service."
+      ],
+      "field_notes": [
+        "Record how power was distributed at each venue (which circuits, approximate loads).",
+        "Note any tripped breakers or hot strips so future shows can plan differently."
+      ]
+    },
+
+    {
+      "id": "generic_clamps_arms",
+      "make": "Various",
+      "model": "Magic Arms, Small/Medium/Large Mouth Clamps",
+      "category": "rigging",
+      "priority": "medium",
+      "common_uses": [
+        "Mounting monitors, cameras, and accessories to truss, railings, or stands"
+      ],
+      "failure_modes": [
+        "Slipping or sagging during show",
+        "Clamps not fully tightened or on unsuitable surfaces"
+      ],
+      "field_troubleshooting": [
+        "Always verify clamp is on solid structure, not decorative elements.",
+        "Double-check all knobs before leaving position.",
+        "If a rig keeps drifting, add a secondary safety (safety cable or second clamp)."
+      ],
+      "field_notes": [
+        "Have techs record any improvised rigging solutions that worked well (and safely) for future shows.",
+        "Retire clamps or arms that no longer hold reliably."
+      ]
+    }
+  ]
+}
