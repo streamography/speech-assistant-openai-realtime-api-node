@@ -146,7 +146,15 @@ function appendTechnicianNote(note) {
   }
 }
 
-const { OPENAI_API_KEY, TECH_DIRECTOR_NUMBER } = process.env;
+// --- Senior tech hunt group (hardcoded in order) ---
+const seniorTechNumbers = [
+  "+19782907750", // Senior Tech 1
+  "+17814699310", // Senior Tech 2
+  "+19786757031", // Senior Tech 3
+  "+19788801917"  // Senior Tech 4
+];
+
+const { OPENAI_API_KEY } = process.env;
 if (!OPENAI_API_KEY) {
   console.error("Missing OpenAI API key. Please set it in the .env file.");
   process.exit(1);
@@ -206,9 +214,9 @@ End-of-call behavior:
 
 If you are not sure about something:
 - Be honest. Say you don't have that exact information.
-- Offer a best-effort path, and suggest they escalate to the technical director if needed.
+- Offer a best-effort path, and suggest they escalate to a senior technician if needed.
 - When appropriate, say something like:
-  "If this still isn’t behaving, you can call back and choose the option to reach the technical director."
+  "If this still isn’t behaving, you can call back and choose the option to reach a senior technician."
 `;
 
 const VOICE = "verse";
@@ -243,7 +251,7 @@ fastify.get("/", async (_request, reply) => {
  * This now presents a simple IVR:
  *  - Press 1 → AI tech support (OpenAI Realtime)
  *  - Press 2 → Leave a technician note (recording saved & logged)
- *  - Press 3 → Transfer to technical director (if TECH_DIRECTOR_NUMBER is configured)
+ *  - Press 3 → Hunt group to next available senior technician (if configured)
  */
 fastify.all("/incoming-call", async (request, reply) => {
   const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
@@ -253,7 +261,11 @@ fastify.all("/incoming-call", async (request, reply) => {
       Thanks for calling the Streamography tech line.
       Press 1 for live AI tech support.
       Press 2 to leave a technician note about this event.
-      ${TECH_DIRECTOR_NUMBER ? "Press 3 to be connected to the technical director." : ""}
+      ${
+        seniorTechNumbers.length
+          ? "Press 3 to be connected to the next available senior technician."
+          : ""
+      }
     </Say>
   </Gather>
   <!-- If they don't press anything, repeat once and then hang up politely -->
@@ -301,12 +313,12 @@ fastify.all("/menu-selection", async (request, reply) => {
   <Say voice="alice">We did not receive a recording. Goodbye.</Say>
   <Hangup/>
 </Response>`;
-  } else if (digits === "3" && TECH_DIRECTOR_NUMBER) {
-    // Transfer to technical director
+  } else if (digits === "3" && seniorTechNumbers.length) {
+    // Hunt group for senior technicians
     twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="alice">Connecting you to the technical director now.</Say>
-  <Dial>${TECH_DIRECTOR_NUMBER}</Dial>
+  <Say voice="alice">Connecting you to the next available senior technician.</Say>
+  <Redirect method="POST">/call-senior-tech?index=0</Redirect>
 </Response>`;
   } else {
     // Invalid choice → back to main menu
@@ -318,6 +330,89 @@ fastify.all("/menu-selection", async (request, reply) => {
   }
 
   reply.type("text/xml").send(twiml);
+});
+
+/**
+ * Hunt group for senior technicians.
+ * - index (query) = which number in the list we're currently trying
+ * - DialCallStatus in the POST body tells us if the last attempt connected or not
+ */
+fastify.all("/call-senior-tech", async (request, reply) => {
+  const index = parseInt(request.query?.index || "0", 10) || 0;
+  const numbers = seniorTechNumbers;
+
+  if (!numbers.length) {
+    const noNumbersTwiML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">
+    We’re currently unable to reach a senior technician. 
+    Please press 1 from the main menu for AI support or try again later.
+  </Say>
+  <Hangup/>
+</Response>`;
+    reply.type("text/xml").send(noNumbersTwiML);
+    return;
+  }
+
+  const lastStatus = request.body?.DialCallStatus;
+
+  // If this is a callback from a Dial:
+  if (lastStatus) {
+    console.log("Hunt group callback status:", lastStatus, "index:", index);
+
+    if (lastStatus === "completed") {
+      // Caller already spoke to a senior tech; wrap up.
+      const doneTwiML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Thanks for speaking with a senior technician. Goodbye.</Say>
+  <Hangup/>
+</Response>`;
+      reply.type("text/xml").send(doneTwiML);
+      return;
+    }
+
+    // No-answer / busy / failed → try next number if available
+    const nextIndex = index + 1;
+    if (nextIndex >= numbers.length) {
+      const exhaustedTwiML = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">
+    We couldn't reach any senior technicians right now.
+    Please press 1 from the main menu for AI support or try again later.
+  </Say>
+  <Hangup/>
+</Response>`;
+      reply.type("text/xml").send(exhaustedTwiML);
+      return;
+    }
+
+    // Try the next number in the list
+    const nextNumber = numbers[nextIndex];
+    console.log("Hunt group: dialing next number:", nextNumber);
+
+    const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial action="/call-senior-tech?index=${nextIndex}" method="POST">
+    <Number timeout="20">${nextNumber}</Number>
+  </Dial>
+</Response>`;
+
+    reply.type("text/xml").send(twimlResponse);
+    return;
+  }
+
+  // First time here: start by dialing numbers[index]
+  const currentNumber = numbers[index];
+  console.log("Hunt group: starting with number:", currentNumber);
+
+  const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial action="/call-senior-tech?index=${index}" method="POST">
+    <Number timeout="20">${currentNumber}</Number>
+  </Dial>
+</Response>`;
+
+  reply.type("text/xml").send(twimlResponse);
 });
 
 /**
